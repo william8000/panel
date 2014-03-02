@@ -1,28 +1,44 @@
 # Makefile for laptop panel backlight applet
 
 NAME=backlight
-BINDIR=/usr/local/lib/mate-panel
+BINDIR=/usr/libexec/mate-applets
 
-SERVER=Backlight.server
-SERVERDIR=/usr/lib/matecomponent/servers
+SCHEMADIR=/usr/share/glib-2.0/schemas
+SCHEMAFILE=org.mate.panel.applet.backlight.gschema.xml
 
-ICON=backlight.png
+APPLETSDIR=/usr/share/mate-panel/applets
+APPLETSFILE=org.mate.applets.BacklightApplet.mate-panel-applet
 
-FILES=$(NAME).c $(SERVER) $(ICON) Makefile
+SERVICESDIR=/usr/share/dbus-1/services
+SERVICESFILE=org.mate.panel.applet.BacklightAppletFactory.service
+
+INSTALL=/usr/bin/install
+INSTALLEXE=$(INSTALL) -m 555
+INSTALLDAT=$(INSTALL) -m 444
+
+#ICON=backlight.png
+
+FILES=$(NAME).c $(SERVER) $(SCHEMAFILE) $(APPLETSFILE) $(SERVICESFILE) Makefile
 
 TARBZ2=$(NAME).tar.bz2
 
 $(NAME): $(NAME).c
-	gcc `pkg-config --cflags --libs libmatepanelapplet-2.0` -Wall -o $(NAME) $(NAME).c
+	gcc `pkg-config --cflags --libs libmatepanelapplet-4.0` `pkg-config --cflags --libs dbus-glib-1` -Wall -o $(NAME) $(NAME).c
 
-install: install-$(NAME) install-server
+install: install-$(NAME) install-schema install-applet install-server
 
 install-$(NAME): $(NAME)
 	mkdir -p $(BINDIR)
-	cp -p $(NAME) $(BINDIR)/$(NAME)
+	$(INSTALLEXE) $(NAME) $(BINDIR)/$(NAME)_applet2
 
-install-server: $(SERVER)
-	cp -p $(SERVER) $(SERVERDIR)/$(SERVER)
+install-schema: $(SCHEMAFILE)
+	$(INSTALLDAT) $(SCHEMAFILE) $(SCHEMADIR)/$(SCHEMAFILE)
+
+install-applet: $(APPLETSFILE)
+	$(INSTALLDAT) $(APPLETSFILE) $(APPLETSDIR)/$(APPLETSFILE)
+
+install-server: $(SERVICESFILE)
+	$(INSTALLDAT) $(SERVICESFILE) $(SERVICESDIR)/$(SERVICESFILE)
 
 $(TARBZ2): $(FILES)
 	tar cvf - $(FILES) | bzip2 -v9 > $(TARBZ2)

@@ -1,0 +1,16 @@
+[Applet Factory]
+Id=BacklightAppletFactory
+Location=/usr/libexec/mate-applets/backlight_applet2
+Name=Backlight Applet Factory
+Description=Backlight Applet Factory
+
+[BacklightApplet]
+Name=Backlight
+Description=Backlight brightness control
+Icon=mate-brightness-applet
+MateComponentId=OAFIID:MATE_BacklightApplet
+X-MATE-Bugzilla-Bugzilla=MATE
+X-MATE-Bugzilla-Product=mate-applets
+X-MATE-Bugzilla-Component=backlight
+X-MATE-Bugzilla-Version=1.6.2
+X-MATE-Bugzilla-OtherBinaries=backlight_applet2

@@ -1,28 +1,44 @@
 # Makefile for mail checker
 
 NAME=mailcheck
-BINDIR=/usr/local/lib/mate-panel
+BINDIR=/usr/libexec/mate-applets
 
-SERVER=MailCheck.server
-SERVERDIR=/usr/lib/matecomponent/servers
+SCHEMADIR=/usr/share/glib-2.0/schemas
+SCHEMAFILE=org.mate.panel.applet.mailcheck.gschema.xml
+
+APPLETSDIR=/usr/share/mate-panel/applets
+APPLETSFILE=org.mate.applets.MailCheckApplet.mate-panel-applet
+
+SERVICESDIR=/usr/share/dbus-1/services
+SERVICESFILE=org.mate.panel.applet.MailCheckAppletFactory.service
 
 ICON=redhat-email.png
 
-FILES=$(NAME).c $(SERVER) $(ICON) Makefile
+INSTALL=/usr/bin/install
+INSTALLEXE=$(INSTALL) -m 555
+INSTALLDAT=$(INSTALL) -m 444
+
+FILES=$(NAME).c $(SERVER) $(SCHEMAFILE) $(APPLETSFILE) $(SERVICESFILE) $(ICON) Makefile
 
 TARBZ2=$(NAME).tar.bz2
 
 $(NAME): $(NAME).c
-	gcc `pkg-config --cflags --libs libmatepanelapplet-2.0` -lX11 -Wall -o $(NAME) $(NAME).c
+	gcc `pkg-config --cflags --libs libmatepanelapplet-4.0` -Wall -o $(NAME) $(NAME).c -lX11
 
-install: install-$(NAME) install-server
+install: install-$(NAME) install-schema install-applet install-server
 
 install-$(NAME): $(NAME)
 	mkdir -p $(BINDIR)
-	cp -p $(NAME) $(BINDIR)/$(NAME)
+	$(INSTALLEXE) $(NAME) $(BINDIR)/$(NAME)_applet2
 
-install-server: $(SERVER)
-	cp -p $(SERVER) $(SERVERDIR)/$(SERVER)
+install-schema: $(SCHEMAFILE)
+	$(INSTALLDAT) $(SCHEMAFILE) $(SCHEMADIR)/$(SCHEMAFILE)
+
+install-applet: $(APPLETSFILE)
+	$(INSTALLDAT) $(APPLETSFILE) $(APPLETSDIR)/$(APPLETSFILE)
+
+install-server: $(SERVICESFILE)
+	$(INSTALLDAT) $(SERVICESFILE) $(SERVICESDIR)/$(SERVICESFILE)
 
 $(TARBZ2): $(FILES)
 	tar cvf - $(FILES) | bzip2 -v9 > $(TARBZ2)

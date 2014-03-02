@@ -1,0 +1,3 @@
+[D-BUS Service]
+Name=org.mate.panel.applet.MailCheckAppletFactory
+Exec=/usr/libexec/mate-applets/mailcheck_applet2

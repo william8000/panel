@@ -1,0 +1,16 @@
+[Applet Factory]
+Id=MailCheckAppletFactory
+Location=/usr/libexec/mate-applets/mailcheck_applet2
+Name=MailCheck Applet Factory
+Description=MailCheck Applet Factory
+
+[MailCheckApplet]
+Name=MailCheck
+Description=Mail check applet
+Icon=claws-mail
+MateComponentId=OAFIID:MATE_MailCheckApplet
+X-MATE-Bugzilla-Bugzilla=MATE
+X-MATE-Bugzilla-Product=mate-applets
+X-MATE-Bugzilla-Component=mailcheck
+X-MATE-Bugzilla-Version=1.6.2
+X-MATE-Bugzilla-OtherBinaries=mailcheck_applet2

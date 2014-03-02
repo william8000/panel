@@ -1,0 +1,3 @@
+[D-BUS Service]
+Name=org.mate.panel.applet.BacklightAppletFactory
+Exec=/usr/libexec/mate-applets/backlight_applet2

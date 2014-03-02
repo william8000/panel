@@ -6,7 +6,8 @@
  * 27Jan08 wb added setup file
  * 28Jan08 wb added sound and beep
  * 12Jun09 wb if MAIL is emtpy, check LOGNAME
- * 26Jun12 wb migrated to mate
+ * 26Jun12 wb migrated to mate for Fedora 17
+ * 26Feb14 wb converted to mate 1.6.2 for Fedora 20
  */
 
 #include <sys/types.h>
@@ -18,12 +19,13 @@
 #include <ctype.h>
 
 #include <mate-panel-applet.h>
+
 #include <gtk/gtklabel.h>
 #include <gtk/gtkimage.h>
 #include <gtk/gtkbox.h>
 #include <gdk/gdkx.h>
 
-#define VERSION		"26Jun12"
+#define VERSION		"26Feb14"
 
 #define	BASE_NAME	"mailcheck"
 
@@ -403,8 +405,9 @@ mailcheck_applet_fill (MatePanelApplet *applet,
 	int setup_len;
 	char *log_name;
 
-	if (strcmp (iid, "OAFIID:MailCheck") != 0)
+	if (strcmp (iid, "MailCheckApplet") != 0) {
 		return FALSE;
+	}
 
 	interval = DEFAULT_INTERVAL;
 
@@ -484,9 +487,38 @@ mailcheck_applet_fill (MatePanelApplet *applet,
 
 /* Factory to interface with the server */
 
+#if 1
+
+/* mate 4 */
+
+static gboolean
+mailcheck_applet_factory (MatePanelApplet *applet,
+			  const char  *iid,
+			  gpointer     data)
+{
+	gboolean retval = FALSE;
+
+	if (!strcmp (iid, "MailCheckApplet"))
+		retval = mailcheck_applet_fill (applet, iid, data);
+
+	return retval;
+}
+
+
+MATE_PANEL_APPLET_OUT_PROCESS_FACTORY ("MailCheckAppletFactory",
+			PANEL_TYPE_APPLET,
+			"MailCheckApplet",
+			mailcheck_applet_factory,
+			NULL);
+#else
+
+/* mate 2 */
+
 MATE_PANEL_APPLET_MATECOMPONENT_FACTORY ("OAFIID:MailCheck_Factory",
 			     PANEL_TYPE_APPLET,
 			     "The Mail Check Applet",
 			     "0",
 			     mailcheck_applet_fill,
 			     NULL);
+
+#endif

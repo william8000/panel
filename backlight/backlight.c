@@ -2,7 +2,9 @@
  *
  * 26Jan10 wb initial version
  * 03Aug10 wb added pointer grab
- * 26Jun12 wb migrated from gnome2 to mate
+ * 26Jun12 wb migrated from gnome2 to mate for Fedora 17
+ * 25Feb14 wb converted to mate 1.6.2 for Fedora 20
+ * 26Feb14 wb use dbus
  */
 
 #include <sys/types.h>
@@ -20,7 +22,9 @@
 #include <gtk/gtkbox.h>
 #include <gdk/gdkx.h>
 
-#define VERSION		"25Jun12"
+#include <dbus/dbus-glib.h>
+
+#define VERSION		"26Feb14"
 
 #define	BASE_NAME	"backlight"
 
@@ -29,7 +33,8 @@
 enum backlight_source_enum {
 	BACKLIGHT_SOURCE_UNKNOWN,
 	BACKLIGHT_SOURCE_SYS_FILE,
-	BACKLIGHT_SOURCE_XBACKLIGHT
+	BACKLIGHT_SOURCE_XBACKLIGHT,
+	BACKLIGHT_SOURCE_DBUS
 };
 
 #define MATE_PANEL_APPLET_VERTICAL(p)	 (((p) == MATE_PANEL_APPLET_ORIENT_LEFT) || ((p) == MATE_PANEL_APPLET_ORIENT_RIGHT))
@@ -44,7 +49,6 @@ static int max_backlight_level = MAX_BACKLIGHT_LEVEL; /* maximum value of raw ba
 static int backlight_level_100 = -1;	/* current backlight level, scaled from 0 to 100 */
 static int backlight_level_100_status = -1;	/* level saved in the status file */
 static enum backlight_source_enum backlight_source = BACKLIGHT_SOURCE_UNKNOWN; /* source of the backlight information */
-/* static MatePanelApplet *backlight_applet = NULL;	*/ /* applet */
 static GtkWidget *backlight_slider = NULL;	/* slider */
 static GtkWidget *backlight_btn_minus = NULL;	/* minus button of slider */
 static GtkWidget *backlight_btn_plus = NULL;	/* plus button of slider */
@@ -52,6 +56,8 @@ static GtkWidget *backlight_popup = NULL;	/* popup that contains the slider */
 static GtkEventBox *backlight_event_box = NULL;	/* area inside panel */
 static int backlight_popped = FALSE;		/* TRUE if the slider is showing */
 static gboolean backlight_call_worked = TRUE;	/* TRUE if last attempt to set the brightness worked */
+static DBusGConnection *connection = NULL;	/* connection to the power manager */
+static DBusGProxy *proxy = NULL;		/* proxy to the power manager */
 
 /* Return a time stamp */
 
@@ -116,28 +122,130 @@ write_backlight_status()
 	}
 }
 
+/**
+ * backlight_applet_get_brightness_with_dbus:
+ * Return value: Success value, or zero for failure
+ **/
+static gboolean
+backlight_applet_get_brightness_with_dbus (MatePanelApplet *applet, int *brightness)
+{
+	GError  *error = NULL;
+	gboolean ret;
+	guint policy_brightness;
+
+	if (proxy == NULL) {
+		if (log_file != NULL) {
+			fprintf(log_file, "backlight_applet_get_brightness_with_dbus, error, not connected\n");
+		}
+		return FALSE;
+	}
+
+	ret = dbus_g_proxy_call (proxy, "GetBrightness", &error,
+				 G_TYPE_INVALID,
+				 G_TYPE_UINT, &policy_brightness,
+				 G_TYPE_INVALID);
+
+	if (error) {
+		if (log_file != NULL) {
+			fprintf(log_file, "backlight_applet_get_brightness_with_dbus, error, %s\n", error->message);
+		}
+		g_error_free (error);
+	}
+
+	if (ret) {
+		*brightness = policy_brightness;
+		if (debug && log_file != NULL) {
+			fprintf(log_file, "backlight_applet_get_brightness_with_dbus, got %d\n", policy_brightness);
+		}
+	} else {
+		*brightness = 0;
+		if (log_file != NULL) {
+			fprintf(log_file, "backlight_applet_get_brightness_with_dbus, GetBrightness failed!\n");
+		}
+	}
+
+	return ret;
+}
+
+/**
+ * backlight_applet_set_brightness_with_dbus:
+ * Return value: Success value, or zero for failure
+ **/
+static gboolean
+backlight_applet_set_brightness_with_dbus (MatePanelApplet *applet, int brightness)
+{
+	GError  *error = NULL;
+	gboolean ret;
+
+	if (debug && log_file) {
+		fprintf(log_file, "backlight_applet_set_brightness_with_dbus, brightness %d\n", brightness);
+	}
+
+	if (proxy == NULL) {
+		if (log_file != NULL) {
+			fprintf(log_file, "backlight_applet_set_brightness_with_dbus, error, not connected\n");
+		}
+		return FALSE;
+	}
+
+	ret = dbus_g_proxy_call (proxy, "SetBrightness", &error,
+				 G_TYPE_UINT, (guint) brightness,
+				 G_TYPE_INVALID,
+				 G_TYPE_INVALID);
+
+	if (error) {
+		if (log_file != NULL) {
+			fprintf(log_file, "backlight_applet_set_brightness_with_dbus, error, %s\n", error->message);
+		}
+		g_error_free (error);
+	}
+
+	if (!ret) {
+		if (log_file != NULL) {
+			fprintf(log_file, "backlight_applet_set_brightness_with_dbus, error, SetBrightness failed!\n");
+		}
+	}
+
+	return ret;
+}
+
 /* Get the backlight level */
 
 static int
-get_backlight_level()
+get_backlight_level(MatePanelApplet *applet)
 {
 	FILE *backlight_file;
 	enum backlight_line_len_enum { BACKLIGHT_LINE_LEN = 80 };
 	char backlight_line[ BACKLIGHT_LINE_LEN ];
 
 	backlight_level = -1;
-
-	backlight_file = fopen(BACKLIGHT_FILE, "r");
 	max_backlight_level = MAX_BACKLIGHT_LEVEL;
-	backlight_source = BACKLIGHT_SOURCE_SYS_FILE;
+	backlight_source = BACKLIGHT_SOURCE_UNKNOWN;
+	backlight_file = NULL;
 
-	if (!backlight_file) {
+	if (backlight_applet_get_brightness_with_dbus(applet, &backlight_level)) {
+		max_backlight_level = 100;
+		backlight_source = BACKLIGHT_SOURCE_DBUS;
+	}
+
+	if (backlight_level < 0 && backlight_file == NULL) {
+		backlight_file = fopen(BACKLIGHT_FILE, "r");
+		max_backlight_level = MAX_BACKLIGHT_LEVEL;
+		backlight_source = BACKLIGHT_SOURCE_SYS_FILE;
+	}
+
+	if (backlight_level < 0 && backlight_file == NULL) {
 		backlight_file = popen("xbacklight -get", "r");
 		max_backlight_level = 100;
 		backlight_source = BACKLIGHT_SOURCE_XBACKLIGHT;
 	}
 
-	if (!backlight_file) {
+	if (backlight_level >= 0) {
+
+		/* nothing to do */
+
+	} else if (!backlight_file) {
+
 		if (log_file != NULL) {
 			fprintf(log_file, "Could not read backlight file '%s'.\n", BACKLIGHT_FILE);
 		}
@@ -158,13 +266,17 @@ get_backlight_level()
 
 		if (backlight_source == BACKLIGHT_SOURCE_XBACKLIGHT) {
 			pclose(backlight_file);
-		} else {
+		} else if (backlight_source == BACKLIGHT_SOURCE_SYS_FILE) {
 			fclose(backlight_file);
+		} else {
+			if (log_file != NULL) {
+				fprintf(log_file, "get_backlight_level, warning, unexpected backlight source %d\n", backlight_source);
+			}
 		}
 	}
 
 	if (debug && log_file != NULL) {
-		fprintf(log_file, "read backlight level %d of %d at %s\n", backlight_level, max_backlight_level, show_time());
+		fprintf(log_file, "read backlight level %d of %d from source %d at %s\n", backlight_level, max_backlight_level, backlight_source, show_time());
 	}
 
 	if (backlight_level_100 < 0) {
@@ -192,10 +304,6 @@ backlight_applet_set_brightness (MatePanelApplet *applet)
 		fflush(log_file);
 	}
 
-	if (backlight_source == BACKLIGHT_SOURCE_UNKNOWN) {
-		backlight_source = ((access(BACKLIGHT_FILE, R_OK) == 0)? BACKLIGHT_SOURCE_SYS_FILE: BACKLIGHT_SOURCE_XBACKLIGHT);
-	}
-
 	if (backlight_level_100 < 0) backlight_level = 0;
 	if (backlight_level_100 > 100) backlight_level = 100;
 	if (max_backlight_level == 100) {
@@ -205,6 +313,16 @@ backlight_applet_set_brightness (MatePanelApplet *applet)
 	}
 	if (new_backlight_level < 0) new_backlight_level = 0;
 	if (new_backlight_level > max_backlight_level) new_backlight_level = max_backlight_level;
+
+	if (backlight_source == BACKLIGHT_SOURCE_UNKNOWN || backlight_source == BACKLIGHT_SOURCE_DBUS) {
+		if (backlight_applet_set_brightness_with_dbus(applet, new_backlight_level)) {
+			backlight_source = BACKLIGHT_SOURCE_DBUS;
+		}
+	}
+
+	if (backlight_source == BACKLIGHT_SOURCE_UNKNOWN) {
+		backlight_source = ((access(BACKLIGHT_FILE, R_OK) == 0)? BACKLIGHT_SOURCE_SYS_FILE: BACKLIGHT_SOURCE_XBACKLIGHT);
+	}
 
 	if (backlight_source == BACKLIGHT_SOURCE_SYS_FILE) {
 		backlight_file = fopen(BACKLIGHT_FILE, "w");
@@ -222,7 +340,7 @@ backlight_applet_set_brightness (MatePanelApplet *applet)
 
 			fclose(backlight_file);
 		}
-	} else {
+	} else if (backlight_source == BACKLIGHT_SOURCE_XBACKLIGHT) {
 		char line[ 100 ];
 		int i;
 		sprintf(line, "xbacklight -time 0 -set %d", new_backlight_level);
@@ -502,7 +620,7 @@ backlight_applet_create_popup (MatePanelApplet *applet)
 static gboolean
 open_window (MatePanelApplet *applet)
 {
-	get_backlight_level();
+	get_backlight_level(applet);
 
 	backlight_applet_draw_cb(applet);
 
@@ -627,8 +745,7 @@ backlight_applet_fill (MatePanelApplet *applet,
 	int setup_len;
 	int status_len;
 	char *log_name;
-
-	/* backlight_applet = applet; */
+	GError *gerror;
 
 	home_dir = getenv("HOME");
 	if (home_dir == NULL) {
@@ -648,8 +765,9 @@ backlight_applet_fill (MatePanelApplet *applet,
 		exit_backlight();
 	}
 
-	if (strcmp(iid, "OAFIID:Backlight") != 0) {
+	if (strcmp(iid, "BacklightApplet") != 0) {
 		fprintf(log_file, "Backlight not starting, iid is %s\n", iid);
+		fflush(log_file);
 		return FALSE;
 	}
 
@@ -683,6 +801,29 @@ backlight_applet_fill (MatePanelApplet *applet,
 	free(log_name);
 	log_name = NULL;
 
+	/* create a dbus connection */
+
+#define GPM_DBUS_SERVICE		"org.mate.PowerManager"
+#define GPM_DBUS_PATH_BACKLIGHT		"/org/mate/PowerManager/Backlight"
+#define GPM_DBUS_INTERFACE_BACKLIGHT	"org.mate.PowerManager.Backlight"
+
+	connection = dbus_g_bus_get(DBUS_BUS_SESSION, &gerror);
+	if (connection == NULL) {
+		fprintf(log_file, "Failed to open connection to bus: %s\n", gerror->message);
+		g_error_free (gerror);
+	}
+
+	proxy = NULL;
+
+	if (connection) {
+		proxy = dbus_g_proxy_new_for_name (connection,
+						   GPM_DBUS_SERVICE,
+						   GPM_DBUS_PATH_BACKLIGHT,
+						   GPM_DBUS_INTERFACE_BACKLIGHT);
+	}
+
+	/* restore the saved brightness */
+
 	if (debug && log_file) {
 		fprintf(log_file, "Before initial set brightness, level %d\n", backlight_level_100);
 	}
@@ -704,7 +845,7 @@ backlight_applet_fill (MatePanelApplet *applet,
 			NULL);
 
 
-	get_backlight_level();
+	get_backlight_level(applet);
 
 	backlight_applet_draw_cb(applet);
 
@@ -713,9 +854,37 @@ backlight_applet_fill (MatePanelApplet *applet,
 
 /* Factory to interface with the server */
 
+#if 1
+
+/* mate 4 */
+
+static gboolean
+backlight_applet_factory (MatePanelApplet *applet,
+			  const char  *iid,
+			  gpointer     data)
+{
+	gboolean retval = FALSE;
+
+	if (!strcmp (iid, "BacklightApplet"))
+		retval = backlight_applet_fill (applet, iid, data);
+
+	return retval;
+}
+
+
+MATE_PANEL_APPLET_OUT_PROCESS_FACTORY ("BacklightAppletFactory",
+			PANEL_TYPE_APPLET,
+			"BacklightApplet",
+			backlight_applet_factory,
+			NULL);
+#else
+
+/* mate 2 */
+
 MATE_PANEL_APPLET_MATECOMPONENT_FACTORY ("OAFIID:Backlight_Factory",
 			     PANEL_TYPE_APPLET,
 			     "The Backlight Applet",
 			     "0",
 			     backlight_applet_fill,
 			     NULL);
+#endif
