@@ -1,10 +1,10 @@
 # Makefile for laptop panel backlight applet
 
 NAME=backlight
-BINDIR=/usr/local/lib/gnome-panel
+BINDIR=/usr/local/lib/mate-panel
 
 SERVER=Backlight.server
-SERVERDIR=/usr/lib/bonobo/servers
+SERVERDIR=/usr/lib/matecomponent/servers
 
 ICON=backlight.png
 
@@ -13,7 +13,7 @@ FILES=$(NAME).c $(SERVER) $(ICON) Makefile
 TARBZ2=$(NAME).tar.bz2
 
 $(NAME): $(NAME).c
-	gcc `pkg-config --cflags --libs libpanelapplet-2.0` -o $(NAME) $(NAME).c
+	gcc `pkg-config --cflags --libs libmatepanelapplet-2.0` -Wall -o $(NAME) $(NAME).c
 
 install: install-$(NAME) install-server
 

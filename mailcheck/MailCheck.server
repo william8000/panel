@@ -1,10 +1,10 @@
 <oaf_info>
 <oaf_server iid="OAFIID:MailCheck_Factory" type="exe"
-            location="/usr/local/lib/gnome-panel/mailcheck">
+            location="/usr/local/lib/mate-panel/mailcheck">
 
         <oaf_attribute name="repo_ids" type="stringv">
-                <item value="IDL:Bonobo/GenericFactory:1.0"/>
-                <item value="IDL:Bonobo/Unknown:1.0"/>
+                <item value="IDL:MateComponent/GenericFactory:1.0"/>
+                <item value="IDL:MateComponent/Unknown:1.0"/>
         </oaf_attribute>
         <oaf_attribute name="name" type="string" value="Mail Check Factory"/>
         <oaf_attribute name="description" type="string" value="Factory to create the mail check applet"/>
@@ -14,13 +14,13 @@
             location="OAFIID:MailCheck_Factory">
 
         <oaf_attribute name="repo_ids" type="stringv">
-                <item value="IDL:GNOME/Vertigo/PanelAppletShell:1.0"/>
-                <item value="IDL:Bonobo/Control:1.0"/>
-                <item value="IDL:Bonobo/Unknown:1.0"/>
+                <item value="IDL:MATE/Vertigo/MatePanelAppletShell:1.0"/>
+                <item value="IDL:MateComponent/Control:1.0"/>
+                <item value="IDL:MateComponent/Unknown:1.0"/>
         </oaf_attribute>
         <oaf_attribute name="name" type="string" value="MailCheck"/>
         <oaf_attribute name="description" type="string" value="mail check applet"/>
         <oaf_attribute name="panel:category" type="string" value="Amusements"/>
-        <oaf_attribute name="panel:icon" type="string" value="redhat-email.png"/>
+        <oaf_attribute name="panel:icon" type="string" value="mnote"/>
 </oaf_server>
 </oaf_info>

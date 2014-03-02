@@ -1,41 +1,50 @@
-/* gnome panel backlight control
+/* mate panel backlight control
  *
  * 26Jan10 wb initial version
  * 03Aug10 wb added pointer grab
+ * 26Jun12 wb migrated from gnome2 to mate
  */
 
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <sys/unistd.h>
 #include <time.h>
+#include <ctype.h>
 #include <string.h>
 #include <stdlib.h>
 
-#include <panel-applet.h>
+#include <mate-panel-applet.h>
+
 #include <gtk/gtklabel.h>
 #include <gtk/gtkimage.h>
 #include <gtk/gtkbox.h>
 #include <gdk/gdkx.h>
 
-#define VERSION		"03Aug10"
+#define VERSION		"25Jun12"
 
 #define	BASE_NAME	"backlight"
 
 #define	BACKLIGHT_FILE	"/sys/devices/virtual/backlight/acpi_video0/brightness"
-
 #define	MAX_BACKLIGHT_LEVEL	15
+enum backlight_source_enum {
+	BACKLIGHT_SOURCE_UNKNOWN,
+	BACKLIGHT_SOURCE_SYS_FILE,
+	BACKLIGHT_SOURCE_XBACKLIGHT
+};
 
-#define PANEL_APPLET_VERTICAL(p)	 (((p) == PANEL_APPLET_ORIENT_LEFT) || ((p) == PANEL_APPLET_ORIENT_RIGHT))
+#define MATE_PANEL_APPLET_VERTICAL(p)	 (((p) == MATE_PANEL_APPLET_ORIENT_LEFT) || ((p) == MATE_PANEL_APPLET_ORIENT_RIGHT))
 
-static int debug = 0;			/* enable debug messages to the log file */
+static int debug = 1;			/* enable debug messages to the log file */
 static char *home_dir = NULL;		/* user's home directory */
 static char *setup_name = NULL;		/* name of the config file */
 static char *status_name = NULL;	/* name of thes status file */
 static FILE *log_file = NULL;		/* file for log messages */
 static int backlight_level = -1;	/* current backlight level */
+static int max_backlight_level = MAX_BACKLIGHT_LEVEL; /* maximum value of raw backlight_level */
 static int backlight_level_100 = -1;	/* current backlight level, scaled from 0 to 100 */
 static int backlight_level_100_status = -1;	/* level saved in the status file */
-/* static PanelApplet *backlight_applet = NULL;	*/ /* applet */
+static enum backlight_source_enum backlight_source = BACKLIGHT_SOURCE_UNKNOWN; /* source of the backlight information */
+/* static MatePanelApplet *backlight_applet = NULL;	*/ /* applet */
 static GtkWidget *backlight_slider = NULL;	/* slider */
 static GtkWidget *backlight_btn_minus = NULL;	/* minus button of slider */
 static GtkWidget *backlight_btn_plus = NULL;	/* plus button of slider */
@@ -119,6 +128,14 @@ get_backlight_level()
 	backlight_level = -1;
 
 	backlight_file = fopen(BACKLIGHT_FILE, "r");
+	max_backlight_level = MAX_BACKLIGHT_LEVEL;
+	backlight_source = BACKLIGHT_SOURCE_SYS_FILE;
+
+	if (!backlight_file) {
+		backlight_file = popen("xbacklight -get", "r");
+		max_backlight_level = 100;
+		backlight_source = BACKLIGHT_SOURCE_XBACKLIGHT;
+	}
 
 	if (!backlight_file) {
 		if (log_file != NULL) {
@@ -136,18 +153,26 @@ get_backlight_level()
 		} else {
 			backlight_level = atoi(backlight_line);
 			if (backlight_level < 0) backlight_level = 0;
-			if (backlight_level > MAX_BACKLIGHT_LEVEL) backlight_level = MAX_BACKLIGHT_LEVEL;
+			if (backlight_level > max_backlight_level) backlight_level = max_backlight_level;
 		}
 
-		fclose(backlight_file);
+		if (backlight_source == BACKLIGHT_SOURCE_XBACKLIGHT) {
+			pclose(backlight_file);
+		} else {
+			fclose(backlight_file);
+		}
 	}
 
 	if (debug && log_file != NULL) {
-		fprintf(log_file, "read backlight level %d at %s\n", backlight_level, show_time());
+		fprintf(log_file, "read backlight level %d of %d at %s\n", backlight_level, max_backlight_level, show_time());
 	}
 
 	if (backlight_level_100 < 0) {
-		backlight_level_100 = ((backlight_level + 1) * 100) / (MAX_BACKLIGHT_LEVEL + 1);
+		if (max_backlight_level == 100) {
+			backlight_level_100 = backlight_level;
+		} else {
+			backlight_level_100 = ((backlight_level + 1) * 100) / (max_backlight_level + 1);
+		}
 	}
 
 	return backlight_level;
@@ -156,7 +181,7 @@ get_backlight_level()
 /* Set the brightness */
 
 static gboolean
-backlight_applet_set_brightness (PanelApplet *applet)
+backlight_applet_set_brightness (MatePanelApplet *applet)
 {
 	FILE *backlight_file;
 	int new_backlight_level;
@@ -167,26 +192,49 @@ backlight_applet_set_brightness (PanelApplet *applet)
 		fflush(log_file);
 	}
 
-	backlight_file = fopen(BACKLIGHT_FILE, "w");
-	if (!backlight_file) {
-		ok = FALSE;
-		if (debug && log_file) {
-			fprintf(log_file, "Could not open '%s' for writing.\n", BACKLIGHT_FILE);
+	if (backlight_source == BACKLIGHT_SOURCE_UNKNOWN) {
+		backlight_source = ((access(BACKLIGHT_FILE, R_OK) == 0)? BACKLIGHT_SOURCE_SYS_FILE: BACKLIGHT_SOURCE_XBACKLIGHT);
+	}
+
+	if (backlight_level_100 < 0) backlight_level = 0;
+	if (backlight_level_100 > 100) backlight_level = 100;
+	if (max_backlight_level == 100) {
+		new_backlight_level = backlight_level_100;
+	} else {
+		new_backlight_level = ((backlight_level_100 * (max_backlight_level + 1)) / 100) - 1;
+	}
+	if (new_backlight_level < 0) new_backlight_level = 0;
+	if (new_backlight_level > max_backlight_level) new_backlight_level = max_backlight_level;
+
+	if (backlight_source == BACKLIGHT_SOURCE_SYS_FILE) {
+		backlight_file = fopen(BACKLIGHT_FILE, "w");
+		if (!backlight_file) {
+			ok = FALSE;
+			if (debug && log_file) {
+				fprintf(log_file, "Could not open '%s' for writing.\n", BACKLIGHT_FILE);
+			}
+		} else {
+			ok = (fprintf(backlight_file, "%d", new_backlight_level));
+
+			if (!ok && log_file) {
+				fprintf(log_file, "Error writing to '%s'.\n", BACKLIGHT_FILE);
+			}
+
+			fclose(backlight_file);
 		}
 	} else {
-		if (backlight_level_100 < 0) backlight_level = 0;
-		if (backlight_level_100 > 100) backlight_level = 100;
-		new_backlight_level = ((backlight_level_100 * (MAX_BACKLIGHT_LEVEL + 1)) / 100) - 1;
-		if (new_backlight_level < 0) new_backlight_level = 0;
-		if (new_backlight_level > MAX_BACKLIGHT_LEVEL) new_backlight_level = MAX_BACKLIGHT_LEVEL;
-
-		ok = (fprintf(backlight_file, "%d", new_backlight_level));
-
-		if (!ok && log_file) {
-			fprintf(log_file, "Error writing to '%s'.\n", BACKLIGHT_FILE);
+		char line[ 100 ];
+		int i;
+		sprintf(line, "xbacklight -time 0 -set %d", new_backlight_level);
+		i = system(line);
+		if (log_file != NULL) {
+			if (debug) {
+				fprintf(log_file, "Set command '%s' returned %d\n", line, i);
+			}
+			if (i != 0) {
+				fprintf(log_file, "Could not update brightness. '%s' returned %d\n", line, i);
+			}
 		}
-
-		fclose(backlight_file);
 	}
 
 	return ok;
@@ -201,9 +249,8 @@ read_setup_file(const char *name)
 	enum setup_enum { ID_LEN = 50, BUF_LEN = 1024 };
 	char id[ ID_LEN ];
 	char buf[ BUF_LEN ];
-	int i, len;
+	int len;
 	int ch;
-	char *str;
 
 	setup_file = fopen(name, "r");
 
@@ -280,7 +327,7 @@ read_setup_file(const char *name)
 /* Set the tooltip */
 
 static void
-backlight_applet_update_tooltip (PanelApplet *applet)
+backlight_applet_update_tooltip (MatePanelApplet *applet)
 {
 	gchar *buf = NULL;
 	if (!backlight_popped) {
@@ -295,12 +342,11 @@ backlight_applet_update_tooltip (PanelApplet *applet)
 /* Draw the applet content (background + icon) */
 
 static gboolean
-backlight_applet_draw_cb (PanelApplet *applet)
+backlight_applet_draw_cb (MatePanelApplet *applet)
 {
 	static GtkWidget *last_label = NULL;
 	static int last_backlight_level_100 = -2;
 	char backlight_message[ 80 ];
-	static GtkWidget *window = NULL;
 
 	if (debug && log_file != NULL) {
 		fprintf(log_file, "draw cb, old level %d new level %d at %s\n",
@@ -334,13 +380,14 @@ backlight_applet_draw_cb (PanelApplet *applet)
 			}
 		}
 		gtk_widget_show_all ( GTK_WIDGET(backlight_event_box) );
-	}	
+	}
+	return TRUE;
 }
 
 /* Update the brightness */
 
 static void
-backlight_applet_update_popup_level (PanelApplet *applet)
+backlight_applet_update_popup_level (MatePanelApplet *applet)
 {
 	if (backlight_popup != NULL) {
 		gtk_widget_set_sensitive (backlight_btn_plus, backlight_level_100 < 100);
@@ -353,7 +400,7 @@ backlight_applet_update_popup_level (PanelApplet *applet)
 /* callback for the plus button */
 
 static gboolean
-backlight_applet_plus_cb (GtkWidget *w, PanelApplet *applet)
+backlight_applet_plus_cb (GtkWidget *w, MatePanelApplet *applet)
 {
 	backlight_level_100 += 5;
 	if (backlight_level_100 > 100) {
@@ -368,7 +415,7 @@ backlight_applet_plus_cb (GtkWidget *w, PanelApplet *applet)
 /* callback for the minus button */
 
 static gboolean
-backlight_applet_minus_cb (GtkWidget *w, PanelApplet *applet)
+backlight_applet_minus_cb (GtkWidget *w, MatePanelApplet *applet)
 {
 	backlight_level_100 -= 5;
 	if (backlight_level_100 < 0) {
@@ -383,7 +430,7 @@ backlight_applet_minus_cb (GtkWidget *w, PanelApplet *applet)
 /* callback for the slider */
 
 static gboolean
-backlight_applet_slide_cb (GtkWidget *w, PanelApplet *applet)
+backlight_applet_slide_cb (GtkWidget *w, MatePanelApplet *applet)
 {
 	backlight_level_100 = gtk_range_get_value (GTK_RANGE(backlight_slider));
 	backlight_call_worked = backlight_applet_set_brightness (applet);
@@ -395,17 +442,17 @@ backlight_applet_slide_cb (GtkWidget *w, PanelApplet *applet)
 /* Create the popup */
 
 static void
-backlight_applet_create_popup (PanelApplet *applet)
+backlight_applet_create_popup (MatePanelApplet *applet)
 {
 	GtkWidget *box, *frame;
-	gint orientation = panel_applet_get_orient (PANEL_APPLET (PANEL_APPLET (applet)));
+	gint orientation = mate_panel_applet_get_orient (MATE_PANEL_APPLET (MATE_PANEL_APPLET (applet)));
 
 	if (backlight_popup) {
 		return;
 	}
 
 	/* slider */
-	if (PANEL_APPLET_VERTICAL(orientation)) {
+	if (MATE_PANEL_APPLET_VERTICAL(orientation)) {
 		backlight_slider = gtk_hscale_new_with_range (0, 100, 1);
 		gtk_widget_set_size_request (backlight_slider, 100, -1);
 	} else {
@@ -429,7 +476,7 @@ backlight_applet_create_popup (PanelApplet *applet)
 	g_signal_connect (G_OBJECT(backlight_btn_plus), "pressed", G_CALLBACK(backlight_applet_plus_cb), applet);
 
 	/* box */
-	if (PANEL_APPLET_VERTICAL(orientation)) {
+	if (MATE_PANEL_APPLET_VERTICAL(orientation)) {
 		box = gtk_hbox_new (FALSE, 1);
 	} else {
 		box = gtk_vbox_new (FALSE, 1);
@@ -453,14 +500,8 @@ backlight_applet_create_popup (PanelApplet *applet)
 /* Update the status displayed in the panel */
 
 static gboolean
-open_window (PanelApplet *applet)
+open_window (MatePanelApplet *applet)
 {
-	static GtkWidget *last_label = NULL;
-	static int last_backlight_level = -2;
-	int backlight_level;
-	char backlight_message[ 80 ];
-	static GtkWidget *window = NULL;
-
 	get_backlight_level();
 
 	backlight_applet_draw_cb(applet);
@@ -500,29 +541,29 @@ open_window (PanelApplet *applet)
 		backlight_popped = TRUE;
 
 		/* move the window near the applet */
-		orientation = panel_applet_get_orient (PANEL_APPLET (PANEL_APPLET (applet)));
+		orientation = mate_panel_applet_get_orient (MATE_PANEL_APPLET (MATE_PANEL_APPLET (applet)));
 		gdk_window_get_origin (gtk_widget_get_window (GTK_WIDGET(applet)), &x, &y);
 
 		gtk_widget_get_allocation (GTK_WIDGET (applet), &allocation);
 		gtk_widget_get_allocation (GTK_WIDGET (backlight_popup), &popup_allocation);
 		switch (orientation) {
-		case PANEL_APPLET_ORIENT_DOWN:
+		case MATE_PANEL_APPLET_ORIENT_DOWN:
 			x += allocation.x + allocation.width/2;
 			y += allocation.y + allocation.height;
 			x -= popup_allocation.width/2;
 			break;
-		case PANEL_APPLET_ORIENT_UP:
+		case MATE_PANEL_APPLET_ORIENT_UP:
 			x += allocation.x + allocation.width/2;
 			y += allocation.y;
 			x -= popup_allocation.width/2;
 			y -= popup_allocation.height;
 			break;
-		case PANEL_APPLET_ORIENT_RIGHT:
+		case MATE_PANEL_APPLET_ORIENT_RIGHT:
 			y += allocation.y + allocation.height/2;
 			x += allocation.x + allocation.width;
 			y -= popup_allocation.height/2;
 			break;
-		case PANEL_APPLET_ORIENT_LEFT:
+		case MATE_PANEL_APPLET_ORIENT_LEFT:
 			y += allocation.y + allocation.height/2;
 			x += allocation.x;
 			x -= popup_allocation.width;
@@ -558,7 +599,7 @@ open_window (PanelApplet *applet)
 /*   Reload the setup file and update the panel */
 
 static gboolean
-on_button_press (PanelApplet   *applet, 
+on_button_press (MatePanelApplet   *applet, 
 		GdkEventButton *event,
 		gpointer	 data)
 {
@@ -578,7 +619,7 @@ on_button_press (PanelApplet   *applet,
 /*   Set up global variables */
 
 static gboolean
-backlight_applet_fill (PanelApplet *applet,
+backlight_applet_fill (MatePanelApplet *applet,
 	const gchar *iid,
 	gpointer data)
 {
@@ -672,7 +713,7 @@ backlight_applet_fill (PanelApplet *applet,
 
 /* Factory to interface with the server */
 
-PANEL_APPLET_BONOBO_FACTORY ("OAFIID:Backlight_Factory",
+MATE_PANEL_APPLET_MATECOMPONENT_FACTORY ("OAFIID:Backlight_Factory",
 			     PANEL_TYPE_APPLET,
 			     "The Backlight Applet",
 			     "0",

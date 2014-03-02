@@ -1,11 +1,12 @@
-/* gnome panel mail checker
+/* mate panel mail checker
  *	checks a mail spool file
- *	updates a status line in a gnome panel
+ *	updates a status line in a mate panel
  *
  * 26Jan08 wb initial version
  * 27Jan08 wb added setup file
  * 28Jan08 wb added sound and beep
  * 12Jun09 wb if MAIL is emtpy, check LOGNAME
+ * 26Jun12 wb migrated to mate
  */
 
 #include <sys/types.h>
@@ -14,14 +15,15 @@
 #include <time.h>
 #include <string.h>
 #include <stdlib.h>
+#include <ctype.h>
 
-#include <panel-applet.h>
+#include <mate-panel-applet.h>
 #include <gtk/gtklabel.h>
 #include <gtk/gtkimage.h>
 #include <gtk/gtkbox.h>
 #include <gdk/gdkx.h>
 
-#define VERSION		"12Jun09"
+#define VERSION		"26Jun12"
 
 #define	BASE_NAME	"mailcheck"
 
@@ -37,7 +39,7 @@ static int do_beep = 0;			/* beep on new messages */
 static off_t last_size = 0;		/* last size of the mail spool file */
 static time_t last_mtime = 0;		/* last modification time of the mail spool file */
 static char *setup_name = NULL;		/* name of the config file */
-static gint timer_handle = 0;		/* handle to change the gnome timer */
+static gint timer_handle = 0;		/* handle to change the mate timer */
 
 enum mail_state_enum {
 	INIT_MAIL = 0,	/* nothing displayed yet */
@@ -114,7 +116,7 @@ check_mail_state()
 		last_mtime = stat_buf.st_mtime;
 	}
 	if (debug && log_file != NULL) {
-		fprintf(log_file, "%s size %d time %d result %d\n", mail_name, last_size, last_mtime, result);
+		fprintf(log_file, "%s size %ld time %ld result %d\n", mail_name, (long)last_size, (long)last_mtime, result);
 		fflush(log_file);
 	}
 	return result;
@@ -129,7 +131,7 @@ read_setup_file()
 	enum setup_enum { ID_LEN = 50, BUF_LEN = 1024 };
 	char id[ ID_LEN ];
 	char buf[ BUF_LEN ];
-	int i, len;
+	int len;
 	int ch;
 	char *str;
 
@@ -392,7 +394,7 @@ on_timer (gpointer data)
 
 
 static gboolean
-mailcheck_applet_fill (PanelApplet *applet,
+mailcheck_applet_fill (MatePanelApplet *applet,
 	const gchar *iid,
 	gpointer data)
 {
@@ -482,7 +484,7 @@ mailcheck_applet_fill (PanelApplet *applet,
 
 /* Factory to interface with the server */
 
-PANEL_APPLET_BONOBO_FACTORY ("OAFIID:MailCheck_Factory",
+MATE_PANEL_APPLET_MATECOMPONENT_FACTORY ("OAFIID:MailCheck_Factory",
 			     PANEL_TYPE_APPLET,
 			     "The Mail Check Applet",
 			     "0",
