@@ -1,0 +1,84 @@
+MATE backlight and mailcheck panel applets
+==========================================
+
+Installation
+------------
+  sudo make install
+
+You will need to install the headers and libraries necessary
+to build a panel applet.
+
+On a "yum" based system, if the build complains about a missing header, use
+"yum provides '*/header" (for example, "yum provides '*/mate-panel-applet.h'")
+to find the name of the package with the header, and then install it.
+
+You will probably need mate-panel-devel, gtk2-devel, and dbus-glib-devel.
+
+After installing the applets, you should be able to see them in the list
+if you right-click on the panel and select "+ Add to Panel..."
+
+The applets current require a horizontal panel.
+
+The git archive has tags for gnome-2.32.0-fc14, mate-1.4.1-fc17,
+and mate-1.6.2-fc20 versions that you can compare to see how to
+migrate applets. gnome-2 to mate-1.4 changes identifier names.
+mate-1.4 to mate-1.6 changes from bonobo to dbus.
+
+These applets are licensed GPL2.
+
+backlight
+---------
+
+This applet controls the screen brightness.
+It can be useful if the standard brightness applet does not work.
+Click on it to open a slider to set the brightness.
+Click on it again to close the slider.
+It uses the files
+* $HOME/.backlightrc (configuration)
+* $HOME/.backlight.stat (saved brightness level from 0 to 100)
+* $HOME/.backlight.log (debug log)
+
+The configuration file is a text file.
+Lines have the syntax
+* # comment
+ A comment
+* level #
+ Set the brightness level to a number from 0 to 100
+* debug #
+ Set the debug level. 0 means no debug.
+
+mailcheck
+---------
+
+This applet checks a mail file and alerts you when there is mail.
+The applet periodically checks the mail file.
+This applet can be useful if you read mail with fetchmail+emacs instead
+of a dedicated mail client.  Mate does not have a mail check applet.
+You can click on the applet to force a check.
+It uses the files
+* $HOME/.mailcheckrc (configuration)
+* $HOME/.mailcheck.log (debug log)
+
+The configuration file is a text file.
+Lines have the syntax
+* # command
+ A comment
+* mail mailname
+ mailname is the name of the file to watch.
+ It defaults to $MAIL
+ If $MAIL is not set, it defaults to /var/spool/mail/$LOGNAME
+* sound soundname
+ soundname is the name of a file to play with the "play" command.
+ For example, "sound /usr/share/sounds/chime.au" will run
+ run "play /usr/share/sounds/chime.au" when you have mail.
+ /usr/bin/play is included in the "sox" package.
+* beep yes
+* beep no
+ Beep when you have mail by using XBell().
+* interval #
+ Check for mail every # seconds, where # is between 1 and 1000.
+* debug #
+ Set the debug level. 0 means no debug.
+
+William Bader
+williambader@hotmail.com

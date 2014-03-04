@@ -12,15 +12,15 @@ APPLETSFILE=org.mate.applets.MailCheckApplet.mate-panel-applet
 SERVICESDIR=/usr/share/dbus-1/services
 SERVICESFILE=org.mate.panel.applet.MailCheckAppletFactory.service
 
-ICON=redhat-email.png
-
 INSTALL=/usr/bin/install
 INSTALLEXE=$(INSTALL) -m 555
 INSTALLDAT=$(INSTALL) -m 444
 
-FILES=$(NAME).c $(SERVER) $(SCHEMAFILE) $(APPLETSFILE) $(SERVICESFILE) $(ICON) Makefile
+FILES=$(NAME).c $(SERVER) $(SCHEMAFILE) $(APPLETSFILE) $(SERVICESFILE) Makefile
 
 TARBZ2=$(NAME).tar.bz2
+
+.PHONY: install install-$(NAME) install-schema install-applet install-server clean tar
 
 $(NAME): $(NAME).c
 	gcc `pkg-config --cflags --libs libmatepanelapplet-4.0` -Wall -o $(NAME) $(NAME).c -lX11

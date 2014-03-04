@@ -16,11 +16,11 @@ INSTALL=/usr/bin/install
 INSTALLEXE=$(INSTALL) -m 555
 INSTALLDAT=$(INSTALL) -m 444
 
-#ICON=backlight.png
-
 FILES=$(NAME).c $(SERVER) $(SCHEMAFILE) $(APPLETSFILE) $(SERVICESFILE) Makefile
 
 TARBZ2=$(NAME).tar.bz2
+
+.PHONY: install install-$(NAME) install-schema install-applet install-server clean tar
 
 $(NAME): $(NAME).c
 	gcc `pkg-config --cflags --libs libmatepanelapplet-4.0` `pkg-config --cflags --libs dbus-glib-1` -Wall -o $(NAME) $(NAME).c
