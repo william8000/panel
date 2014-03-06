@@ -807,6 +807,7 @@ backlight_applet_fill (MatePanelApplet *applet,
 #define GPM_DBUS_PATH_BACKLIGHT		"/org/mate/PowerManager/Backlight"
 #define GPM_DBUS_INTERFACE_BACKLIGHT	"org.mate.PowerManager.Backlight"
 
+	gerror = NULL;
 	connection = dbus_g_bus_get(DBUS_BUS_SESSION, &gerror);
 	if (connection == NULL) {
 		fprintf(log_file, "Failed to open connection to bus: %s\n", gerror->message);
