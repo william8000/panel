@@ -6,7 +6,8 @@
  * 12Jun09 wb if MAIL is emtpy, check LOGNAME
  * 26Jun12 wb migrated to mate for Fedora 17
  * 26Feb14 wb converted to mate 1.6.2 for Fedora 20
- * 27Aug20 wb copied from mailcheck.c
+ * 27Aug20 wb initial version, copied from mailcheck.c, read from sensors utility
+ * 28Aug20 wb read from sys dev files
  */
 
 #include <sys/types.h>
@@ -24,7 +25,7 @@
 #include <gtk/gtkbox.h>
 #include <gdk/gdkx.h>
 
-#define VERSION		"27Aug20"
+#define VERSION		"28Aug20"
 
 #define	BASE_NAME	"temperature"
 
@@ -83,14 +84,123 @@ exit_temperature(void)
 static int
 check_temperature()
 {
+	enum check_temperature_enum {
+		MAX_BUF = 80,
+		HWMON_IND_POS = 44,
+		TEMP_IND_POS = 50
+	};
+	enum check_temperature_source_enum { SENSORS_SOURCE, SYS_DEV_SOURCE, NO_SOURCE };
 	FILE *f;
-	enum check_temperature_enum { MAX_BUF = 80 };
 	char buf[ MAX_BUF ];
 	int i;
 	int temp;
 	int result;
+	struct stat stat_buf;
+	static enum check_temperature_source_enum source = NO_SOURCE;
+	static char *hwmon_path = NULL;
+	static int temp_set = 0;
+	static int temp_min_ind = 0;
+	static int temp_max_ind = -1;
 
 	result = 0;
+
+	if (source == NO_SOURCE) {
+
+		/* scan for the hwmon# item */
+
+		strcpy(buf, "/sys/devices/platform/coretemp.0/hwmon/hwmon#/temp1_label");
+
+		for (i = 0; i < 10; i++) {
+			buf[ HWMON_IND_POS ] = (char) ('0' + i);
+			if (debug && log_file != NULL) {
+				fprintf(log_file, "hwmon scan, checking for '%s'\n", buf);
+			}
+			if (stat(buf, &stat_buf) == 0) {
+				source = SYS_DEV_SOURCE;
+				hwmon_path = malloc(strlen(buf) + 10);
+				if (hwmon_path == NULL) {
+					if (log_file != NULL) {
+						fprintf(log_file, "could not allocate hwmon path\n");
+					}
+					exit_temperature();
+				}
+				strcpy(hwmon_path, buf);
+				break;
+			}
+		}
+
+		/* scan for the list of temp#_label items that map to CPU cores */
+
+		if (source == SYS_DEV_SOURCE) {
+			for (i = 1; i < 10; i++) {
+				hwmon_path[ TEMP_IND_POS ] = (char) ('0' + i);
+				if (debug && log_file != NULL) {
+					fprintf(log_file, "temp scan, checking for '%s'\n", hwmon_path);
+				}
+				f = fopen(hwmon_path, "r");
+				if (f == NULL) {
+					/* no more items to try */
+					break;
+				}
+				if (fgets(buf, MAX_BUF, f) != NULL && strncmp(buf, "Core", 4) == 0) {
+					if (temp_set == 0) {
+						temp_min_ind = i;
+					}
+					temp_max_ind = i;
+					temp_set |= (1 << i);
+					if (debug && log_file != NULL) {
+						fprintf(log_file, "using temp %d with %s\n", i, buf);
+					}
+				}
+				fclose(f);
+			}
+
+			/* change the end of the path from "label" to "input" to read the values */
+
+			strcpy(&hwmon_path[ TEMP_IND_POS+2 ], "input");
+
+			/* check that we found something */
+
+			if (temp_set == 0) {
+				if (debug && log_file != NULL) {
+					fprintf(log_file, "did not find good temp item, reverting to sensors\n");
+				}
+				source = NO_SOURCE;
+			}
+		}
+
+		/* fall back to using the sensors utility */
+
+		if (source == NO_SOURCE) {
+			source = SENSORS_SOURCE;
+		}
+	}
+
+	/* read the core temperatures using sys dev files */
+
+	if (source == SYS_DEV_SOURCE) {
+		for (i = temp_min_ind; i <= temp_max_ind; i++) {
+			if (((1 << i) & temp_set) != 0) {
+				hwmon_path[ TEMP_IND_POS ] = (char) ('0' + i);
+				f = fopen(hwmon_path, "r");
+				if (f != NULL) {
+					if (fgets(buf, MAX_BUF, f) != NULL) {
+						temp = atoi(buf) / 1000;
+						if (result < temp) {
+							result = temp;
+						}
+						if (debug && log_file != NULL) {
+							fprintf(log_file, "temp ind %d value %d\n", i, temp);
+						}
+					}
+					fclose(f);
+				}
+			}
+		}
+		return result;
+	}
+
+	/* read the core temperatures using the sensors utility */
 
 	f = popen("sensors", "r");
 
@@ -108,7 +218,7 @@ check_temperature()
 		if (debug && log_file != NULL) {
 			fprintf(log_file, "sensors line: %s", buf);
 		}
-		
+
 		i = 0;
 		while (buf[i] == ' ') {
 			i++;
@@ -287,7 +397,7 @@ read_setup_file()
 		} else {
 			if (log_file != NULL)
 				fprintf(log_file, "Setup file '%s' has unknown option '%s'.\n", setup_name, id);
-		}	
+		}
 	}
 
 	fclose(setup_file);
@@ -323,7 +433,7 @@ open_window (GtkEventBox *event_box)
 			last_temperature, temperature, show_time());
 	}
 
-	if (temperature >= warning_temperature && (last_temperature < warning_temperature || time(NULL) >= last_warning_time + warning_interval)) {
+	if (temperature >= warning_temperature && time(NULL) >= last_warning_time + warning_interval) {
 		last_warning_time = time(NULL);
 		if (debug && log_file != NULL) {
 			fprintf(log_file, "high temp %d at %ld, last temp %d\n", temperature, last_warning_time, last_temperature);
@@ -377,7 +487,7 @@ static gint on_timer (gpointer data);
 /*   Reload the setup file and update the panel */
 
 static gboolean
-on_button_press (GtkWidget      *event_box, 
+on_button_press (GtkWidget      *event_box,
 		GdkEventButton *event,
 		gpointer	 data)
 {
@@ -480,7 +590,7 @@ temperature_applet_fill (MatePanelApplet *applet,
 	gtk_container_add (GTK_CONTAINER (applet), GTK_WIDGET (event_box) );
 	gtk_widget_show_all (GTK_WIDGET (applet));
 
-	g_signal_connect (G_OBJECT (event_box), 
+	g_signal_connect (G_OBJECT (event_box),
 			"button_press_event",
 			G_CALLBACK (on_button_press),
 			NULL);

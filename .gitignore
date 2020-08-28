@@ -4,3 +4,6 @@
 /mailcheck/mailcheck
 /mailcheck/*-
 /mailcheck/*.err
+/temperature/temperature
+/temperature/*-
+/temperature/*.err
