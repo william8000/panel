@@ -1,0 +1,16 @@
+[Applet Factory]
+Id=TemperatureAppletFactory
+Location=/usr/libexec/mate-applets/temperature_applet2
+Name=Temperature Applet Factory
+Description=Temperature Applet Factory
+
+[TemperatureApplet]
+Name=Temperature
+Description=Temperature check applet
+Icon=mate-power-statistics
+MateComponentId=OAFIID:MATE_TemperatureApplet
+X-MATE-Bugzilla-Bugzilla=MATE
+X-MATE-Bugzilla-Product=mate-applets
+X-MATE-Bugzilla-Component=temperature
+X-MATE-Bugzilla-Version=1.6.2
+X-MATE-Bugzilla-OtherBinaries=temperature_applet2
