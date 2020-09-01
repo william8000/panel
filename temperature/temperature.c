@@ -8,6 +8,7 @@
  * 26Feb14 wb converted to mate 1.6.2 for Fedora 20
  * 27Aug20 wb initial version, copied from mailcheck.c, read from sensors utility
  * 28Aug20 wb read from sys dev files
+ * 01Sep20 wb skip small changes to reduce cpu time
  */
 
 #include <sys/types.h>
@@ -25,7 +26,7 @@
 #include <gtk/gtkbox.h>
 #include <gdk/gdkx.h>
 
-#define VERSION		"28Aug20"
+#define VERSION		"01Sep20"
 
 #define	BASE_NAME	"temperature"
 
@@ -452,7 +453,10 @@ open_window (GtkEventBox *event_box)
 		}
 	}
 
-	if (temperature != last_temperature) {
+	if (temperature != last_temperature &&
+	    (abs(temperature - last_temperature) > 2 ||
+	     temperature >= warning_temperature ||
+	     last_temperature >= warning_temperature)) {
 		if (last_label != NULL) {
 			gtk_container_remove (GTK_CONTAINER (event_box), last_label);
 			if (debug && log_file != NULL) {
