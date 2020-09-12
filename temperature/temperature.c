@@ -9,6 +9,7 @@
  * 27Aug20 wb initial version, copied from mailcheck.c, read from sensors utility
  * 28Aug20 wb read from sys dev files
  * 01Sep20 wb skip small changes to reduce cpu time
+ * 12Sep20 wb switch from fopen to open
  */
 
 #include <sys/types.h>
@@ -17,6 +18,7 @@
 #include <time.h>
 #include <string.h>
 #include <stdlib.h>
+#include <fcntl.h>
 #include <ctype.h>
 
 #include <mate-panel-applet.h>
@@ -26,7 +28,7 @@
 #include <gtk/gtkbox.h>
 #include <gdk/gdkx.h>
 
-#define VERSION		"01Sep20"
+#define VERSION		"12Sep20"
 
 #define	BASE_NAME	"temperature"
 
@@ -180,12 +182,17 @@ check_temperature()
 	/* read the core temperatures using sys dev files */
 
 	if (source == SYS_DEV_SOURCE) {
+		int fd;
+		int len;
 		for (i = temp_min_ind; i <= temp_max_ind; i++) {
 			if (((1 << i) & temp_set) != 0) {
 				hwmon_path[ TEMP_IND_POS ] = (char) ('0' + i);
-				f = fopen(hwmon_path, "r");
-				if (f != NULL) {
-					if (fgets(buf, MAX_BUF, f) != NULL) {
+				fd = open(hwmon_path, O_RDONLY);
+				if (fd != -1) {
+					len = read(fd, buf, MAX_BUF - 1);
+					if (len > 0) {
+						if (len > MAX_BUF - 1) len = MAX_BUF - 1;
+						buf[ len ] = '\0';
 						temp = atoi(buf) / 1000;
 						if (result < temp) {
 							result = temp;
@@ -194,7 +201,7 @@ check_temperature()
 							fprintf(log_file, "temp ind %d value %d\n", i, temp);
 						}
 					}
-					fclose(f);
+					close(fd);
 				}
 			}
 		}
@@ -334,19 +341,19 @@ read_setup_file()
 				}
 			}
 			if (len == 0) {
-				if (log_file != NULL) fprintf(log_file, "Clear 'sound' file.\n");
+				if (debug && log_file != NULL) fprintf(log_file, "Clear 'sound' file.\n");
 			} else if (!ok) {
-				if (log_file != NULL)
+				if (debug && log_file != NULL)
 					fprintf(log_file, "Setup file '%s' has 'sound' file '%s' with special characters.\n",
 						setup_name, buf);
 			} else if (access(buf, R_OK) != 0) {
-				if (log_file != NULL)
+				if (debug && log_file != NULL)
 					fprintf(log_file, "Setup file '%s' lists missing 'sound' file '%s'.\n", setup_name, buf);
 			} else {
 				str = strdup(buf);
 				if (str != NULL) {
 					sound_name = str;
-					if (log_file != NULL)
+					if (debug && log_file != NULL)
 						fprintf(log_file, "Set 'sound' to '%s'.\n", sound_name);
 				}
 			}
@@ -355,49 +362,49 @@ read_setup_file()
 				((len == 0 ||
 				  (isdigit(buf[0]) && atoi(buf) > 0) ||
 				  (buf[0] == 'y' || buf[0] == 't'))? 1: 0);
-			if (log_file != NULL)
+			if (debug && log_file != NULL)
 				fprintf(log_file, "Set 'beep' to %d.\n", do_beep);
 		} else if (strcmp(id, "interval") == 0) {
 			if (len == 0 || !isdigit(buf[0])) {
-				if (log_file != NULL)
+				if (debug && log_file != NULL)
 					fprintf(log_file, "Setup file '%s' has 'interval' without numeric value.\n", setup_name);
 			} else {
 				interval = atoi(buf);
 				if (interval < 1) interval = 1;
 				if (interval > 1000) interval = 1000;
-				if (log_file != NULL) fprintf(log_file, "Set 'interval' to %d seconds.\n", interval);
+				if (debug && log_file != NULL) fprintf(log_file, "Set 'interval' to %d seconds.\n", interval);
 			}
 		} else if (strcmp(id, "warn") == 0) {
 			if (len == 0 || !isdigit(buf[0])) {
-				if (log_file != NULL)
+				if (debug && log_file != NULL)
 					fprintf(log_file, "Setup file '%s' has 'warn' without numeric value.\n", setup_name);
 			} else {
 				warning_temperature = atoi(buf);
 				if (warning_temperature < 0) warning_temperature = 0;
 				if (warning_temperature > 1000) warning_temperature = 1000;
-				if (log_file != NULL) fprintf(log_file, "Set 'warn' to %d degrees.\n", warning_temperature);
+				if (debug && log_file != NULL) fprintf(log_file, "Set 'warn' to %d degrees.\n", warning_temperature);
 			}
 		} else if (strcmp(id, "warninterval") == 0) {
 			if (len == 0 || !isdigit(buf[0])) {
-				if (log_file != NULL)
+				if (debug && log_file != NULL)
 					fprintf(log_file, "Setup file '%s' has 'warninterval' without numeric value.\n", setup_name);
 			} else {
 				warning_interval = atoi(buf);
 				if (warning_interval < 0) warning_interval = 0;
 				if (warning_interval > 1000) warning_interval = 1000;
-				if (log_file != NULL) fprintf(log_file, "Set 'warninterval' to %d seconds.\n", warning_interval);
+				if (debug && log_file != NULL) fprintf(log_file, "Set 'warninterval' to %d seconds.\n", warning_interval);
 			}
 		} else if (strcmp(id, "debug") == 0) {
 			if (len == 0 || !isdigit(buf[0])) {
-				if (log_file != NULL)
+				if (debug && log_file != NULL)
 					fprintf(log_file, "Setup file '%s' has 'debug' without numeric value.\n", setup_name);
 			} else {
 				debug = atoi(buf);
-				if (log_file != NULL) fprintf(log_file, "Set debug level to %d.\n", debug);
+				if (debug && log_file != NULL) fprintf(log_file, "Set debug level to %d.\n", debug);
 			}
 		} else {
 			if (log_file != NULL)
-				fprintf(log_file, "Setup file '%s' has unknown option '%s'.\n", setup_name, id);
+				fprintf(log_file, "Warning: Setup file '%s' has unknown option '%s'.\n", setup_name, id);
 		}
 	}
 
@@ -432,6 +439,7 @@ open_window (GtkEventBox *event_box)
 	if (debug && log_file != NULL) {
 		fprintf(log_file, "old temp %d new temp %d at %s\n",
 			last_temperature, temperature, show_time());
+		fflush(log_file);
 	}
 
 	if (temperature >= warning_temperature && time(NULL) >= last_warning_time + warning_interval) {
