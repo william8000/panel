@@ -3,12 +3,12 @@ MATE backlight and mailcheck panel applets
 
 Installation
 ------------
-  sudo make install
+sudo make install
 
 You will need to install the headers and libraries necessary
 to build a panel applet.
 
-On a "yum" based system, if the build complains about a missing header, use
+On a "dnf" or "yum" based system, if the build complains about a missing header, use
 "yum provides '*/header" (for example, "yum provides '*/mate-panel-applet.h'")
 to find the name of the package with the header, and then install it.
 
@@ -19,9 +19,9 @@ if you right-click on the panel and select "+ Add to Panel..."
 
 The applets current require a horizontal panel.
 
-The git archive has tags for gnome-2.32.0-fc14, mate-1.4.1-fc17,
-and mate-1.6.2-fc20 versions that you can compare to see how to
-migrate applets. gnome-2 to mate-1.4 changes identifier names.
+The git archive has tags including gnome-2.32.0-fc14, mate-1.4.1-fc17,
+mate-1.6.2-fc20, and mate-1.24.1-fc32 versions that you can compare
+to see how to migrate applets. gnome-2 to mate-1.4 changes identifier names.
 mate-1.4 to mate-1.6 changes from bonobo to dbus.
 
 These applets are licensed GPL2.
@@ -70,7 +70,7 @@ Lines have the syntax
 * sound soundname
  soundname is the name of a file to play with the "play" command.
  For example, "sound /usr/share/sounds/chime.au" will run
- run "play /usr/share/sounds/chime.au" when you have mail.
+ "play /usr/share/sounds/chime.au" when you have mail.
  /usr/bin/play is included in the "sox" package.
 * beep yes
 * beep no
@@ -79,6 +79,40 @@ Lines have the syntax
  Check for mail every # seconds, where # is between 1 and 1000.
 * debug #
  Set the debug level. 0 means no debug.
+
+temperature
+-----------
+
+This applet shows the cpu temperature, and alerts you when it is above a given value.
+The applet uses less cpu than applications that draw graphs, and the applet uses no
+screen space other than a line in the panel.
+The applet currently tries to read the temperature from files under /sys/devices/platform/coretemp.0/hwmon/
+If that fails, it falls back to using the output of the sensors program, part of the lm_sensors package.
+It uses the files
+* $HOME/.temperaturerc (configuration)
+* $HOME/.temperature.log (debug log)
+
+The configuration file is a text file.
+Lines have the syntax
+* # command
+ A comment
+* interval #
+ Check the temperature every # seconds, where # is between 1 and 5000, defaults to 5.
+* warn #
+ High temperature warning level, where # is degrees C, defaults to 90.
+* sound soundname
+ soundname is the name of a file to play with the "play" command on high temperature warnings.
+ For example, "sound /usr/share/sounds/chime.au" will run
+ "play /usr/share/sounds/chime.au" when the cpu is hot.
+ /usr/bin/play is included in the "sox" package.
+* beep yes
+* beep no
+ Beep on high temperature warnings.
+* warninterval #
+ Interval in seconds to warn for sustained high temperatures, where # is between 1 and 1000, defaults to 5.
+* debug #
+ Set the debug level. 0 means no debug.
+
 
 William Bader
 williambader@hotmail.com
