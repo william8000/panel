@@ -10,6 +10,7 @@
  * 28Aug20 wb read from sys dev files
  * 01Sep20 wb skip small changes to reduce cpu time
  * 12Sep20 wb switch from fopen to open
+ * 01Dec21 wb track time of config file
  */
 
 #include <sys/types.h>
@@ -28,7 +29,7 @@
 #include <gtk/gtkbox.h>
 #include <gdk/gdkx.h>
 
-#define VERSION		"12Sep20"
+#define VERSION		"01Dec21"
 
 #define	BASE_NAME	"temperature"
 
@@ -45,6 +46,7 @@ static int do_beep = 0;			/* beep on new messages */
 static int warning_temperature = 0;	/* temperature to show a warning */
 static int warning_interval = 0;	/* interval to repeat a warning */
 static char *setup_name = NULL;		/* name of the config file */
+static time_t setup_mtime = 0;		/* mtime of config file */
 static gint timer_handle = 0;		/* handle to change the mate timer */
 
 /* Return a time stamp */
@@ -283,11 +285,14 @@ read_setup_file()
 	int len;
 	int ch;
 	char *str;
+	struct stat stat_buf;
 
 	if (debug && log_file != NULL) {
 		fprintf(log_file, "Reading setup file %s.\n", setup_name);
 		fflush(log_file);
 	}
+
+	setup_mtime = 0;
 
 	setup_file = fopen(setup_name, "r");
 
@@ -297,6 +302,10 @@ read_setup_file()
 			fflush(log_file);
 		}
 		return;
+	}
+
+	if (fstat(fileno(setup_file), &stat_buf) == 0) {
+		setup_mtime = stat_buf.st_mtim.tv_sec;
 	}
 
 	ch = fgetc(setup_file);
@@ -425,7 +434,7 @@ read_setup_file()
 /* Update the status displayed in the panel */
 
 static gboolean
-open_window (GtkEventBox *event_box)
+open_window (GtkEventBox *event_box, gboolean force_update)
 {
 	static GtkWidget *last_label = NULL;
 	static int last_temperature = 0;
@@ -462,7 +471,8 @@ open_window (GtkEventBox *event_box)
 	}
 
 	if (temperature != last_temperature &&
-	    (abs(temperature - last_temperature) > 2 ||
+	    (force_update ||
+	     abs(temperature - last_temperature) > 2 ||
 	     temperature >= warning_temperature ||
 	     last_temperature >= warning_temperature)) {
 		if (last_label != NULL) {
@@ -496,7 +506,7 @@ open_window (GtkEventBox *event_box)
 static gint on_timer (gpointer data);
 
 /* Handle a left click on the panel */
-/*   Reload the setup file and update the panel */
+/*   Reload the setup file (if needed) and update the panel */
 
 static gboolean
 on_button_press (GtkWidget      *event_box,
@@ -504,6 +514,7 @@ on_button_press (GtkWidget      *event_box,
 		gpointer	 data)
 {
 	int last_interval;
+	struct stat stat_buf;
 
 	/* Don't react to anything other than the left mouse button;
 	   return FALSE so the event is passed to the default handler */
@@ -511,19 +522,29 @@ on_button_press (GtkWidget      *event_box,
 	if (event->button != 1)
 		return FALSE;
 
-	last_interval = interval;
+	/* Check if the setup file has changed */
 
-	read_setup_file();
-
-	if (interval != last_interval) {
-		g_source_remove(timer_handle);
-		timer_handle = g_timeout_add (interval * 1000, on_timer, event_box);
+	if (setup_name != NULL &&
+	    stat(setup_name, &stat_buf) == 0 &&
+	    stat_buf.st_mtim.tv_sec == setup_mtime) {
 		if (debug && log_file != NULL) {
-			fprintf(log_file, "Resetting timer from %d to %d seconds.\n", last_interval, interval);
+			fprintf(log_file, "Setup file unchanged, not reloading.\n");
+		}
+	} else {
+		last_interval = interval;
+
+		read_setup_file();
+
+		if (interval != last_interval) {
+			g_source_remove(timer_handle);
+			timer_handle = g_timeout_add (interval * 1000, on_timer, event_box);
+			if (debug && log_file != NULL) {
+				fprintf(log_file, "Resetting timer from %d to %d seconds.\n", last_interval, interval);
+			}
 		}
 	}
 
-	return open_window( GTK_EVENT_BOX(event_box) );
+	return open_window( GTK_EVENT_BOX(event_box), /* force update */ TRUE );
 }
 
 /* Handle a timeout */
@@ -532,7 +553,7 @@ on_button_press (GtkWidget      *event_box,
 static gint
 on_timer (gpointer data)
 {
-	return open_window(data);
+	return open_window(data, /* force update */ FALSE);
 }
 
 /* Main entry point of the applet */
@@ -597,7 +618,7 @@ temperature_applet_fill (MatePanelApplet *applet,
 
 	event_box = (GtkEventBox *) gtk_event_box_new ();
 
-	open_window(event_box);
+	open_window(event_box, /* force update */ TRUE);
 
 	gtk_container_add (GTK_CONTAINER (applet), GTK_WIDGET (event_box) );
 	gtk_widget_show_all (GTK_WIDGET (applet));

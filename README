@@ -86,6 +86,7 @@ temperature
 This applet shows the cpu temperature, and alerts you when it is above a given value.
 The applet uses less cpu than applications that draw graphs, and the applet uses no
 screen space other than a line in the panel.
+Click on the status line to reload the config file (if it changed) and to show the current temperature.
 The applet currently tries to read the temperature from files under /sys/devices/platform/coretemp.0/hwmon/
 If that fails, it falls back to using the output of the sensors program, part of the lm_sensors package.
 It uses the files
