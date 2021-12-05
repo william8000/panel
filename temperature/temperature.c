@@ -11,6 +11,7 @@
  * 01Sep20 wb skip small changes to reduce cpu time
  * 12Sep20 wb switch from fopen to open
  * 01Dec21 wb track time of config file
+ * 05Dec21 wb track time of last time check of config file
  */
 
 #include <sys/types.h>
@@ -29,7 +30,7 @@
 #include <gtk/gtkbox.h>
 #include <gdk/gdkx.h>
 
-#define VERSION		"01Dec21"
+#define VERSION		"05Dec21"
 
 #define	BASE_NAME	"temperature"
 
@@ -47,6 +48,7 @@ static int warning_temperature = 0;	/* temperature to show a warning */
 static int warning_interval = 0;	/* interval to repeat a warning */
 static char *setup_name = NULL;		/* name of the config file */
 static time_t setup_mtime = 0;		/* mtime of config file */
+static time_t setup_check_time = 0;	/* time of last check of config file */
 static gint timer_handle = 0;		/* handle to change the mate timer */
 
 /* Return a time stamp */
@@ -293,6 +295,7 @@ read_setup_file()
 	}
 
 	setup_mtime = 0;
+	setup_check_time = time(NULL);
 
 	setup_file = fopen(setup_name, "r");
 
@@ -514,6 +517,7 @@ on_button_press (GtkWidget      *event_box,
 		gpointer	 data)
 {
 	int last_interval;
+	time_t cur_time;
 	struct stat stat_buf;
 
 	/* Don't react to anything other than the left mouse button;
@@ -524,22 +528,31 @@ on_button_press (GtkWidget      *event_box,
 
 	/* Check if the setup file has changed */
 
-	if (setup_name != NULL &&
-	    stat(setup_name, &stat_buf) == 0 &&
-	    stat_buf.st_mtim.tv_sec == setup_mtime) {
+	cur_time = time(NULL);
+
+	if (cur_time - setup_check_time < 5) {
 		if (debug && log_file != NULL) {
-			fprintf(log_file, "Setup file unchanged, not reloading.\n");
+			fprintf(log_file, "%ld secs since last setup file check, not rechecking.\n", cur_time - setup_check_time);
 		}
 	} else {
-		last_interval = interval;
-
-		read_setup_file();
-
-		if (interval != last_interval) {
-			g_source_remove(timer_handle);
-			timer_handle = g_timeout_add (interval * 1000, on_timer, event_box);
+		setup_check_time = cur_time;
+		if (setup_name != NULL &&
+		    stat(setup_name, &stat_buf) == 0 &&
+		    stat_buf.st_mtim.tv_sec == setup_mtime) {
 			if (debug && log_file != NULL) {
-				fprintf(log_file, "Resetting timer from %d to %d seconds.\n", last_interval, interval);
+				fprintf(log_file, "Setup file unchanged, not reloading.\n");
+			}
+		} else {
+			last_interval = interval;
+
+			read_setup_file();
+
+			if (interval != last_interval) {
+				g_source_remove(timer_handle);
+				timer_handle = g_timeout_add (interval * 1000, on_timer, event_box);
+				if (debug && log_file != NULL) {
+					fprintf(log_file, "Resetting timer from %d to %d seconds.\n", last_interval, interval);
+				}
 			}
 		}
 	}
