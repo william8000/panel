@@ -8,6 +8,7 @@
  * 12Jun09 wb if MAIL is emtpy, check LOGNAME
  * 26Jun12 wb migrated to mate for Fedora 17
  * 26Feb14 wb converted to mate 1.6.2 for Fedora 20
+ * 04Jan22 wb play with -q
  */
 
 #include <sys/types.h>
@@ -25,7 +26,7 @@
 #include <gtk/gtkbox.h>
 #include <gdk/gdkx.h>
 
-#define VERSION		"26Feb14"
+#define VERSION		"04Jan22"
 
 #define	BASE_NAME	"mailcheck"
 
@@ -299,7 +300,7 @@ open_window (GtkEventBox *event_box)
 				char *cmd;
 				cmd = malloc(strlen(sound_name) + 20);
 				if (cmd != NULL) {
-					sprintf(cmd, "play '%s' &", sound_name);
+					sprintf(cmd, "play -q '%s' &", sound_name);
 					system(cmd);
 					free(cmd);
 				}
