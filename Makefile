@@ -1,4 +1,4 @@
-TARGETS = backlight mailcheck
+TARGETS = backlight mailcheck temperature
 
 BUILDDIRS = $(TARGETS:%=build-%)
 INSTALLDIRS = $(TARGETS:%=install-%)
