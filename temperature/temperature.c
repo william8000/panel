@@ -12,6 +12,7 @@
  * 12Sep20 wb switch from fopen to open
  * 01Dec21 wb track time of config file
  * 05Dec21 wb track time of last time check of config file
+ * 17Oct22 wb support more than 9 cores, support thinkpad_hwmon
  */
 
 #include <sys/types.h>
@@ -30,7 +31,7 @@
 #include <gtk/gtkbox.h>
 #include <gdk/gdkx.h>
 
-#define VERSION		"05Dec21"
+#define VERSION		"17Oct22"
 
 #define	BASE_NAME	"temperature"
 
@@ -94,18 +95,22 @@ check_temperature()
 	enum check_temperature_enum {
 		MAX_BUF = 80,
 		HWMON_IND_POS = 44,
-		TEMP_IND_POS = 50
+		TEMP_IND_POS = 50,
+		THINKPAD_HWMON_IND_POS = 48,
+		THINKPAD_TEMP_IND_POS = THINKPAD_HWMON_IND_POS + 6
 	};
-	enum check_temperature_source_enum { SENSORS_SOURCE, SYS_DEV_SOURCE, NO_SOURCE };
+	enum check_temperature_source_enum { SENSORS_SOURCE, SYS_DEV_SOURCE, THINKPAD_SOURCE, NO_SOURCE };
 	FILE *f;
 	char buf[ MAX_BUF ];
 	int i;
 	int temp;
 	int result;
+	char *path;
 	struct stat stat_buf;
 	static enum check_temperature_source_enum source = NO_SOURCE;
 	static char *hwmon_path = NULL;
-	static int temp_set = 0;
+	static char *hwmon_path2 = NULL;
+	static uint64_t temp_set = 0;
 	static int temp_min_ind = 0;
 	static int temp_max_ind = -1;
 
@@ -113,17 +118,17 @@ check_temperature()
 
 	if (source == NO_SOURCE) {
 
-		/* scan for the hwmon# item */
+		/* scan for the thinkpad item */
 
-		strcpy(buf, "/sys/devices/platform/coretemp.0/hwmon/hwmon#/temp1_label");
+		strcpy(buf, "/sys/devices/platform/thinkpad_hwmon/hwmon/hwmon#/temp1_label");
 
 		for (i = 0; i < 10; i++) {
-			buf[ HWMON_IND_POS ] = (char) ('0' + i);
+			buf[ THINKPAD_HWMON_IND_POS ] = (char) ('0' + i);
 			if (debug && log_file != NULL) {
 				fprintf(log_file, "hwmon scan, checking for '%s'\n", buf);
 			}
 			if (stat(buf, &stat_buf) == 0) {
-				source = SYS_DEV_SOURCE;
+				source = THINKPAD_SOURCE;
 				hwmon_path = malloc(strlen(buf) + 10);
 				if (hwmon_path == NULL) {
 					if (log_file != NULL) {
@@ -136,25 +141,98 @@ check_temperature()
 			}
 		}
 
-		/* scan for the list of temp#_label items that map to CPU cores */
+		/* scan temp#_label with the CPU item */
 
-		if (source == SYS_DEV_SOURCE) {
+		if (source == THINKPAD_SOURCE) {
+			int thinkpad_cpu_ind = -1;
 			for (i = 1; i < 10; i++) {
-				hwmon_path[ TEMP_IND_POS ] = (char) ('0' + i);
+				hwmon_path[ THINKPAD_TEMP_IND_POS ] = (char) ('0' + i);
 				if (debug && log_file != NULL) {
 					fprintf(log_file, "temp scan, checking for '%s'\n", hwmon_path);
 				}
 				f = fopen(hwmon_path, "r");
 				if (f == NULL) {
-					/* no more items to try */
+					continue;
+				}
+				if (fgets(buf, MAX_BUF, f) != NULL && strncmp(buf, "CPU", 3) == 0) {
+					thinkpad_cpu_ind = i;
+					if (debug && log_file != NULL) {
+						fprintf(log_file, "using CPU temp %d with %s\n", i, buf);
+					}
+				}
+				fclose(f);
+				if (thinkpad_cpu_ind > 0) {
+					/* found the thinkpad CPU item */
+					/* change the end of the path from "label" to "input" to read the values */
+					strcpy(&hwmon_path[ THINKPAD_TEMP_IND_POS+2 ], "input");
 					break;
+				}
+			}
+
+			/* check that we found something */
+
+			if (thinkpad_cpu_ind <= 0) {
+				if (debug && log_file != NULL) {
+					fprintf(log_file, "did not find good thinkpad CPU temp item, reverting to generic hwmon\n");
+				}
+				source = NO_SOURCE;
+			}
+		}
+
+		if (source == NO_SOURCE) {
+
+			/* scan for the hwmon# item */
+
+			strcpy(buf, "/sys/devices/platform/coretemp.0/hwmon/hwmon#/temp1_label");
+
+			for (i = 0; i < 10; i++) {
+				buf[ HWMON_IND_POS ] = (char) ('0' + i);
+				if (debug && log_file != NULL) {
+					fprintf(log_file, "hwmon scan, checking for '%s'\n", buf);
+				}
+				if (stat(buf, &stat_buf) == 0) {
+					source = SYS_DEV_SOURCE;
+					hwmon_path = malloc(strlen(buf) + 10);
+					hwmon_path2 = malloc(strlen(buf) + 10);
+					if (hwmon_path == NULL) {
+						if (log_file != NULL) {
+							fprintf(log_file, "could not allocate hwmon path\n");
+						}
+						exit_temperature();
+					}
+					strcpy(hwmon_path, buf);
+					strcpy(hwmon_path2, buf);
+					strcpy(&hwmon_path2[TEMP_IND_POS+1], &buf[TEMP_IND_POS]);
+					break;
+				}
+			}
+		}
+
+		/* scan for the list of temp#_label items that map to CPU cores */
+
+		if (source == SYS_DEV_SOURCE) {
+			for (i = 1; i < 64; i++) {
+				if (i < 10) {
+					path = hwmon_path;
+					path[ TEMP_IND_POS ] = (char) ('0' + i);
+				} else {
+					path = hwmon_path2;
+					path[ TEMP_IND_POS ] = (char) ('0' + i/10);
+					path[ TEMP_IND_POS+1 ] = (char) ('0' + i%10);
+				}
+				if (debug && log_file != NULL) {
+					fprintf(log_file, "temp scan, checking for '%s'\n", path);
+				}
+				f = fopen(path, "r");
+				if (f == NULL) {
+					continue;
 				}
 				if (fgets(buf, MAX_BUF, f) != NULL && strncmp(buf, "Core", 4) == 0) {
 					if (temp_set == 0) {
 						temp_min_ind = i;
 					}
 					temp_max_ind = i;
-					temp_set |= (1 << i);
+					temp_set |= (1ull << i);
 					if (debug && log_file != NULL) {
 						fprintf(log_file, "using temp %d with %s\n", i, buf);
 					}
@@ -165,6 +243,7 @@ check_temperature()
 			/* change the end of the path from "label" to "input" to read the values */
 
 			strcpy(&hwmon_path[ TEMP_IND_POS+2 ], "input");
+			strcpy(&hwmon_path2[ TEMP_IND_POS+3 ], "input");
 
 			/* check that we found something */
 
@@ -185,13 +264,37 @@ check_temperature()
 
 	/* read the core temperatures using sys dev files */
 
+	if (source == THINKPAD_SOURCE) {
+		int fd = open(hwmon_path, O_RDONLY);
+		if (fd != -1) {
+			int len = read(fd, buf, MAX_BUF - 1);
+			if (len > 0) {
+				if (len > MAX_BUF - 1) len = MAX_BUF - 1;
+				buf[ len ] = '\0';
+				result = atoi(buf) / 1000;
+				if (debug && log_file != NULL) {
+					fprintf(log_file, "thinkpad CPU temp value %d\n", result);
+				}
+			}
+			close(fd);
+		}
+		return result;
+	}
+
 	if (source == SYS_DEV_SOURCE) {
 		int fd;
 		int len;
 		for (i = temp_min_ind; i <= temp_max_ind; i++) {
-			if (((1 << i) & temp_set) != 0) {
-				hwmon_path[ TEMP_IND_POS ] = (char) ('0' + i);
-				fd = open(hwmon_path, O_RDONLY);
+			if (((1ull << i) & temp_set) != 0) {
+				if (i < 10) {
+					path = hwmon_path;
+					hwmon_path[ TEMP_IND_POS ] = (char) ('0' + i);
+				} else {
+					path = hwmon_path2;
+					path[ TEMP_IND_POS ] = (char) ('0' + i/10);
+					path[ TEMP_IND_POS+1 ] = (char) ('0' + i%10);
+				}
+				fd = open(path, O_RDONLY);
 				if (fd != -1) {
 					len = read(fd, buf, MAX_BUF - 1);
 					if (len > 0) {
@@ -270,7 +373,7 @@ check_temperature()
 		}
 	}
 
-	fclose(f);
+	pclose(f);
 
 	return result;
 }
