@@ -13,6 +13,7 @@
  * 01Dec21 wb track time of config file
  * 05Dec21 wb track time of last time check of config file
  * 17Oct22 wb support more than 9 cores, support thinkpad_hwmon
+ * 22Oct22 wb add tempinterval to repaint for small temperature changes
  */
 
 #include <sys/types.h>
@@ -31,13 +32,15 @@
 #include <gtk/gtkbox.h>
 #include <gdk/gdkx.h>
 
-#define VERSION		"17Oct22"
+#define VERSION		"22Oct22"
 
-#define	BASE_NAME	"temperature"
+#define BASE_NAME	"temperature"
 
-#define	DEFAULT_INTERVAL	5
-#define	DEFAULT_WARNING_TEMPERATURE	90
-#define	DEFAULT_WARNING_INTERVAL	5
+#define DEFAULT_INTERVAL		5
+#define DEFAULT_TEMPERATURE_INTERVAL	DEFAULT_INTERVAL
+#define DEFAULT_WARNING_TEMPERATURE	90
+#define DEFAULT_WARNING_INTERVAL	5
+#define MAX_INTERVAL			1000
 
 static int interval = 0;		/* time between temperature checks */
 static int debug = 0;			/* enable debug messages to the log file */
@@ -45,6 +48,7 @@ static char *home_dir = NULL;		/* user's home directory */
 static FILE *log_file = NULL;		/* file for log messages */
 static char *sound_name = NULL;		/* name of the sound file for new messages */
 static int do_beep = 0;			/* beep on new messages */
+static int temperature_interval = 0;	/* interval to update temperature if it only changed a little */
 static int warning_temperature = 0;	/* temperature to show a warning */
 static int warning_interval = 0;	/* interval to repeat a warning */
 static char *setup_name = NULL;		/* name of the config file */
@@ -486,8 +490,18 @@ read_setup_file()
 			} else {
 				interval = atoi(buf);
 				if (interval < 1) interval = 1;
-				if (interval > 1000) interval = 1000;
+				if (interval > MAX_INTERVAL) interval = MAX_INTERVAL;
 				if (debug && log_file != NULL) fprintf(log_file, "Set 'interval' to %d seconds.\n", interval);
+			}
+		} else if (strcmp(id, "tempinterval") == 0) {
+			if (len == 0 || !isdigit(buf[0])) {
+				if (debug && log_file != NULL)
+					fprintf(log_file, "Setup file '%s' has 'tempinterval' without numeric value.\n", setup_name);
+			} else {
+				temperature_interval = atoi(buf);
+				if (temperature_interval < 0) temperature_interval = 0;
+				if (temperature_interval > MAX_INTERVAL) temperature_interval = MAX_INTERVAL;
+				if (debug && log_file != NULL) fprintf(log_file, "Set 'tempinterval' to %d seconds.\n", temperature_interval);
 			}
 		} else if (strcmp(id, "warn") == 0) {
 			if (len == 0 || !isdigit(buf[0])) {
@@ -496,7 +510,7 @@ read_setup_file()
 			} else {
 				warning_temperature = atoi(buf);
 				if (warning_temperature < 0) warning_temperature = 0;
-				if (warning_temperature > 1000) warning_temperature = 1000;
+				if (warning_temperature > MAX_INTERVAL) warning_temperature = MAX_INTERVAL;
 				if (debug && log_file != NULL) fprintf(log_file, "Set 'warn' to %d degrees.\n", warning_temperature);
 			}
 		} else if (strcmp(id, "warninterval") == 0) {
@@ -506,7 +520,7 @@ read_setup_file()
 			} else {
 				warning_interval = atoi(buf);
 				if (warning_interval < 0) warning_interval = 0;
-				if (warning_interval > 1000) warning_interval = 1000;
+				if (warning_interval > MAX_INTERVAL) warning_interval = MAX_INTERVAL;
 				if (debug && log_file != NULL) fprintf(log_file, "Set 'warninterval' to %d seconds.\n", warning_interval);
 			}
 		} else if (strcmp(id, "debug") == 0) {
@@ -528,6 +542,7 @@ read_setup_file()
 	if (log_file != NULL) {
 		fprintf(log_file, "Read setup file '%s' at %s.\n", setup_name, show_time());
 		fprintf(log_file, " interval %d seconds\n", interval);
+		fprintf(log_file, " small change temperature interval %d seconds\n", temperature_interval);
 		fprintf(log_file, " warn at %d degrees\n", warning_temperature);
 		fprintf(log_file, " warn again after %d seconds\n", warning_interval);
 		fprintf(log_file, " play sound '%s'\n", (sound_name? sound_name: "<none>"));
@@ -545,6 +560,7 @@ open_window (GtkEventBox *event_box, gboolean force_update)
 	static GtkWidget *last_label = NULL;
 	static int last_temperature = 0;
 	static time_t last_warning_time = 0;
+	static time_t last_temperature_time = 0;
 	int temperature;
 	enum open_window_enum { TEMP_BUF_LEN = 80 };
 	char temp_buf[ TEMP_BUF_LEN ];
@@ -580,7 +596,8 @@ open_window (GtkEventBox *event_box, gboolean force_update)
 	    (force_update ||
 	     abs(temperature - last_temperature) > 2 ||
 	     temperature >= warning_temperature ||
-	     last_temperature >= warning_temperature)) {
+	     last_temperature >= warning_temperature ||
+	     time(NULL) >= last_temperature_time + temperature_interval)) {
 		if (last_label != NULL) {
 			gtk_container_remove (GTK_CONTAINER (event_box), last_label);
 			if (debug && log_file != NULL) {
@@ -589,6 +606,7 @@ open_window (GtkEventBox *event_box, gboolean force_update)
 		}
 
 		last_temperature = temperature;
+		last_temperature_time = time(NULL);
 		if (temperature > 0) {
 			sprintf(temp_buf, "Temp %d", temperature);
 			last_label = gtk_label_new (temp_buf);
@@ -692,6 +710,8 @@ temperature_applet_fill (MatePanelApplet *applet,
 	}
 
 	interval = DEFAULT_INTERVAL;
+
+	temperature_interval = DEFAULT_TEMPERATURE_INTERVAL;
 
 	warning_temperature = DEFAULT_WARNING_TEMPERATURE;
 
