@@ -297,7 +297,7 @@ backlight_applet_set_brightness (MatePanelApplet *applet)
 {
 	FILE *backlight_file;
 	int new_backlight_level;
-	gboolean ok;
+	gboolean ok = TRUE;
 
 	if (debug && log_file) {
 		fprintf(log_file, "Request to set brightness to %d%%\n", backlight_level_100);
@@ -429,7 +429,7 @@ read_setup_file(const char *name)
 		} else {
 			if (log_file != NULL)
 				fprintf(log_file, "Setup file '%s' has unknown option '%s'.\n", name, id);
-		}	
+		}
 	}
 
 	fclose(setup_file);
@@ -487,7 +487,7 @@ backlight_applet_draw_cb (MatePanelApplet *applet)
 			sprintf(backlight_message, "Backlight %d%%", last_backlight_level_100);
 		} else {
 			sprintf(backlight_message, "Backlight unknown");
-		} 
+		}
 
 		if (last_backlight_level_100 >= 0) {
 			last_label = gtk_label_new (backlight_message);
@@ -717,9 +717,9 @@ open_window (MatePanelApplet *applet)
 /*   Reload the setup file and update the panel */
 
 static gboolean
-on_button_press (MatePanelApplet   *applet, 
-		GdkEventButton *event,
-		gpointer	 data)
+on_button_press (MatePanelApplet *applet,
+		GdkEventButton   *event,
+		gpointer	  data)
 {
 	/* Don't react to anything other than the left mouse button;
 	   return FALSE so the event is passed to the default handler */

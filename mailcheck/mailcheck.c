@@ -356,7 +356,7 @@ static gint on_timer (gpointer data);
 
 static gboolean
 on_button_press (GtkWidget      *event_box, 
-		GdkEventButton *event,
+		GdkEventButton  *event,
 		gpointer	 data)
 {
 	int last_interval;

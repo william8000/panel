@@ -23,7 +23,7 @@ TARBZ2=$(NAME).tar.bz2
 .PHONY: install install-$(NAME) install-schema install-applet install-server clean tar
 
 $(NAME): $(NAME).c
-	gcc `pkg-config --cflags --libs libmatepanelapplet-4.0` -Wall -o $(NAME) $(NAME).c -lX11
+	$(CC) -pipe -O3 `pkg-config --cflags --libs libmatepanelapplet-4.0` -Wall $(CFLAGS) $(LDFLAGS) -o $(NAME) $(NAME).c $(LDLIBS) -lX11
 
 install: install-$(NAME) install-schema install-applet install-server
 
