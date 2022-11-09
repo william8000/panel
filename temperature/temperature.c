@@ -15,6 +15,7 @@
  * 17Oct22 wb support more than 9 cores, support thinkpad_hwmon
  * 22Oct22 wb add tempinterval to repaint for small temperature changes, show fan speed
  * 25Oct22 wb use openat()
+ * 05Nov22 wb get GPU temperature
  */
 
 #include <sys/types.h>
@@ -33,7 +34,7 @@
 #include <gtk/gtkbox.h>
 #include <gdk/gdkx.h>
 
-#define VERSION		"25Oct22"
+#define VERSION		"05Nov22"
 
 #define BASE_NAME	"temperature"
 
@@ -53,6 +54,7 @@ static char *sound_name = NULL;		/* name of the sound file for new messages */
 static int do_beep = 0;			/* beep on new messages */
 static int temperature_interval = 0;	/* interval to update temperature if it only changed a little */
 static int fan_check_interval = 0;	/* interval to check fan */
+static int gpu_temp_interval = 0;	/* interval to check gpu */
 static int warning_temperature = 0;	/* temperature to show a warning */
 static int warning_interval = 0;	/* interval to repeat a warning */
 static char *setup_name = NULL;		/* name of the config file */
@@ -134,6 +136,40 @@ check_fan_speed()
 	return result;
 }
 
+/* Find the current gpu temperature */
+
+static char *hwmon_gpu_temp_path = NULL;
+static int hwmon_gpu_temp_dir_fd = -1;
+
+static int
+check_gpu_temp()
+{
+	int result = 0;
+
+	if (hwmon_gpu_temp_path != NULL) {
+		int fd = openat(hwmon_gpu_temp_dir_fd, hwmon_gpu_temp_path, O_RDONLY);
+		if (fd != -1) {
+			char buf[ MAX_BUF ];
+			int len = read(fd, buf, MAX_BUF - 1);
+			if (len > 0) {
+				if (len > MAX_BUF - 1) len = MAX_BUF - 1;
+				buf[ len ] = '\0';
+				result = atoi(buf) / 1000;
+				if (debug && log_file != NULL) {
+					fprintf(log_file, "hwmon GPU temp %d\n", result);
+				}
+			}
+			close(fd);
+		}
+		if (result <= 0) {
+			if (debug && log_file != NULL) {
+				fprintf(log_file, "hwmon GPU temp N/A\n");
+			}
+		}
+	}
+	return result;
+}
+
 /* Find the current cpu temperature */
 
 static int
@@ -191,6 +227,7 @@ check_temperature()
 					exit_temperature();
 				}
 				hwmon_fan_speed_dir_fd = thinkpad_hwmon_dir_fd;
+				hwmon_gpu_temp_dir_fd = thinkpad_hwmon_dir_fd;
 				break;
 			}
 		}
@@ -199,6 +236,7 @@ check_temperature()
 
 		if (source == THINKPAD_SOURCE) {
 			int thinkpad_cpu_ind = -1;
+			int thinkpad_gpu_ind = -1;
 			for (i = 1; i < 10; i++) {
 				hwmon_path[ THINKPAD_TEMP_IND_POS ] = (char) ('0' + i);
 				if (debug && log_file != NULL) {
@@ -208,26 +246,46 @@ check_temperature()
 				if (f == NULL) {
 					continue;
 				}
-				if (fgets(buf, MAX_BUF, f) != NULL && strncmp(buf, "CPU", 3) == 0) {
-					thinkpad_cpu_ind = i;
-					if (debug && log_file != NULL) {
-						fprintf(log_file, "using CPU temp %d with %s\n", i, buf);
+				if (fgets(buf, MAX_BUF, f) != NULL) {
+					if (thinkpad_cpu_ind < 0 && strncmp(buf, "CPU", 3) == 0) {
+						thinkpad_cpu_ind = i;
+						if (debug && log_file != NULL) {
+							fprintf(log_file, "using CPU temp %d with %s\n", i, buf);
+						}
+					} else if (thinkpad_gpu_ind < 0 && strncmp(buf, "GPU", 3) == 0) {
+						thinkpad_gpu_ind = i;
+						if (debug && log_file != NULL) {
+							fprintf(log_file, "using GPU temp %d with %s\n", i, buf);
+						}
 					}
 				}
 				fclose(f);
-				if (thinkpad_cpu_ind > 0) {
-					/* found the thinkpad CPU item */
-					/* change the end of the path from "label" to "input" to read the values */
-					strcpy(&hwmon_path[ THINKPAD_TEMP_IND_POS+2 ], "input");
-					/* fans don't have labels. the first seems to be the cpu. */
-					hwmon_fan_speed_path = "fan1_input";
-					if (debug && log_file != NULL) {
-						fprintf(log_file, "using fan %s\n", hwmon_fan_speed_path);
-					}
-					if (check_fan_speed() < 0) {
-						hwmon_fan_speed_path = NULL;
-					}
+				if (thinkpad_cpu_ind >= 0 && thinkpad_gpu_ind >= 0) {
 					break;
+				}
+			}
+			if (thinkpad_cpu_ind > 0) {
+				/* found the thinkpad CPU item */
+				/* change the end of the path from "label" to "input" to read the values */
+				hwmon_path[ THINKPAD_TEMP_IND_POS ] = (char) ('0' + thinkpad_cpu_ind);
+				strcpy(&hwmon_path[ THINKPAD_TEMP_IND_POS+2 ], "input");
+				/* fans don't have labels. the first seems to be the cpu. */
+				hwmon_fan_speed_path = "fan1_input";
+				if (debug && log_file != NULL) {
+					fprintf(log_file, "using fan %s\n", hwmon_fan_speed_path);
+				}
+				if (check_fan_speed() < 0) {
+					hwmon_fan_speed_path = NULL;
+				}
+				if (thinkpad_gpu_ind > 0) {
+					hwmon_gpu_temp_path = (char *) malloc(20);
+					if (hwmon_gpu_temp_path != NULL) {
+						strcpy(hwmon_gpu_temp_path, "temp#_input");
+						hwmon_gpu_temp_path[ 4 ] = (char) ('0' + thinkpad_gpu_ind);
+						if (debug && log_file != NULL) {
+							fprintf(log_file, "using gpu temp %s\n", hwmon_gpu_temp_path);
+						}
+					}
 				}
 			}
 
@@ -509,7 +567,7 @@ read_setup_file()
 		return;
 	}
 
-	temperature_interval = fan_check_interval = warning_interval = -1;
+	temperature_interval = fan_check_interval = gpu_temp_interval = warning_interval = -1;
 
 	if (fstat(fileno(setup_file), &stat_buf) == 0) {
 		setup_mtime = stat_buf.st_mtim.tv_sec;
@@ -615,12 +673,17 @@ read_setup_file()
 	if (warning_interval < 0) {
 		warning_interval = (DEFAULT_WARNING_INTERVAL * interval) / DEFAULT_INTERVAL;
 	}
+	if (gpu_temp_interval < 0) {
+		gpu_temp_interval = temperature_interval;
+		if (gpu_temp_interval < fan_check_interval) gpu_temp_interval = fan_check_interval;
+	}
 
 	if (log_file != NULL) {
 		fprintf(log_file, "Read setup file '%s' at %s.\n", setup_name, show_time());
 		fprintf(log_file, " interval %d seconds\n", interval);
 		fprintf(log_file, " small change temperature interval %d seconds\n", temperature_interval);
 		fprintf(log_file, " fan check interval %d seconds\n", fan_check_interval);
+		fprintf(log_file, " gpu check interval %d seconds\n", gpu_temp_interval);
 		fprintf(log_file, " warn at %d degrees\n", warning_temperature);
 		fprintf(log_file, " warn again after %d seconds\n", warning_interval);
 		fprintf(log_file, " play sound '%s'\n", (sound_name? sound_name: "<none>"));
@@ -637,9 +700,11 @@ open_window (GtkEventBox *event_box, gboolean force_update)
 {
 	static GtkWidget *last_label = NULL;
 	static int last_temperature = 0;
+	static int last_gpu_temp = 0;
 	static int last_fan_speed = -1;
 	static time_t last_warning_time = 0;
 	static time_t last_fan_check_time = 0;
+	static time_t last_gpu_temp_check_time = 0;
 	static time_t last_repaint_time = 0;
 	static time_t current_time;
 	int temperature;
@@ -659,8 +724,8 @@ open_window (GtkEventBox *event_box, gboolean force_update)
 	}
 
 	if (debug && log_file != NULL) {
-		fprintf(log_file, "old temp %d new temp %d old fan %d new fan %d at %s\n",
-			last_temperature, temperature, last_fan_speed, fan_speed, show_time());
+		fprintf(log_file, "old temp %d new temp %d old gpu %d old fan %d new fan %d at %s\n",
+			last_temperature, temperature, last_gpu_temp, last_fan_speed, fan_speed, show_time());
 		fflush(log_file);
 	}
 
@@ -701,10 +766,16 @@ open_window (GtkEventBox *event_box, gboolean force_update)
 		last_fan_speed = fan_speed;
 		last_repaint_time = current_time;
 		if (temperature > 0) {
+			const char *gpu_mark;
+			if (current_time > last_gpu_temp_check_time + gpu_temp_interval) {
+				last_gpu_temp = check_gpu_temp();
+				last_gpu_temp_check_time = current_time;
+			}
+			gpu_mark = ((last_gpu_temp > 0)? " G": "");
 			if (fan_speed > 0) {
-				sprintf(temp_buf, "Temp %d Fan %d", temperature, fan_speed);
+				sprintf(temp_buf, "Temp %d%s Fan %d", temperature, gpu_mark, fan_speed);
 			} else {
-				sprintf(temp_buf, "Temp %d", temperature);
+				sprintf(temp_buf, "Temp %d%s", temperature, gpu_mark);
 			}
 			last_label = gtk_label_new (temp_buf);
 			gtk_container_add (GTK_CONTAINER (event_box), last_label);
