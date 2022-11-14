@@ -5,6 +5,7 @@
  * 26Jun12 wb migrated from gnome2 to mate for Fedora 17
  * 25Feb14 wb converted to mate 1.6.2 for Fedora 20
  * 26Feb14 wb use dbus
+ * 09Nov22 wb add unicode option
  */
 
 #include <sys/types.h>
@@ -24,7 +25,7 @@
 
 #include <dbus/dbus-glib.h>
 
-#define VERSION		"26Feb14"
+#define VERSION		"09Nov22"
 
 #define	BASE_NAME	"backlight"
 
@@ -56,6 +57,7 @@ static GtkWidget *backlight_popup = NULL;	/* popup that contains the slider */
 static GtkEventBox *backlight_event_box = NULL;	/* area inside panel */
 static int backlight_popped = FALSE;		/* TRUE if the slider is showing */
 static gboolean backlight_call_worked = TRUE;	/* TRUE if last attempt to set the brightness worked */
+static int do_unicode = 1;			/* show unicode instead of text */
 static DBusGConnection *connection = NULL;	/* connection to the power manager */
 static DBusGProxy *proxy = NULL;		/* proxy to the power manager */
 
@@ -417,6 +419,8 @@ read_setup_file(const char *name)
 				if (backlight_level_100 > 100) backlight_level_100 = 100;
 				if (log_file != NULL) fprintf(log_file, "Set initial level to %d%%.\n", backlight_level_100);
 			}
+		} else if (strcmp(id, "unicode") == 0) {
+			do_unicode = ((len == 0 || (buf[0] >= '1' && buf[0] <= '9') || buf[0] == 'y' || buf[0] == 't')? 1: 0);
 		} else if (strcmp(id, "debug") == 0) {
 			if (len == 0 || !isdigit(buf[0])) {
 				if (log_file != NULL) {
@@ -437,6 +441,7 @@ read_setup_file(const char *name)
 	if (log_file != NULL && (debug || strcmp(name, setup_name) == 0)) {
 		fprintf(log_file, "Read setup file '%s' at %s.\n", name, show_time());
 		fprintf(log_file, " backlight level %d\n", backlight_level_100);
+		fprintf(log_file, " unicode %d\n", do_unicode);
 		fprintf(log_file, " debug level %d\n", debug);
 		fflush(log_file);
 	}
@@ -484,7 +489,10 @@ backlight_applet_draw_cb (MatePanelApplet *applet)
 		last_backlight_level_100 = backlight_level_100;
 
 		if (last_backlight_level_100 >= 0) {
-			sprintf(backlight_message, "Backlight %d%%", last_backlight_level_100);
+			sprintf(backlight_message,
+				"%s %d%%",
+				(do_unicode? "\xE2\x98\x80": "Backlight"),
+				last_backlight_level_100);
 		} else {
 			sprintf(backlight_message, "Backlight unknown");
 		}

@@ -16,6 +16,7 @@
  * 22Oct22 wb add tempinterval to repaint for small temperature changes, show fan speed
  * 25Oct22 wb use openat()
  * 05Nov22 wb get GPU temperature
+ * 09Nov22 wb add unicode option
  */
 
 #include <sys/types.h>
@@ -34,7 +35,7 @@
 #include <gtk/gtkbox.h>
 #include <gdk/gdkx.h>
 
-#define VERSION		"05Nov22"
+#define VERSION		"09Nov22"
 
 #define BASE_NAME	"temperature"
 
@@ -52,6 +53,7 @@ static char *home_dir = NULL;		/* user's home directory */
 static FILE *log_file = NULL;		/* file for log messages */
 static char *sound_name = NULL;		/* name of the sound file for new messages */
 static int do_beep = 0;			/* beep on new messages */
+static int do_unicode = 1;		/* show unicode instead of text */
 static int temperature_interval = 0;	/* interval to update temperature if it only changed a little */
 static int fan_check_interval = 0;	/* interval to check fan */
 static int gpu_temp_interval = 0;	/* interval to check gpu */
@@ -61,6 +63,9 @@ static char *setup_name = NULL;		/* name of the config file */
 static time_t setup_mtime = 0;		/* mtime of config file */
 static time_t setup_check_time = 0;	/* time of last check of config file */
 static gint timer_handle = 0;		/* handle to change the mate timer */
+static const char *temp_text = NULL;	/* text to show temperature */
+static const char *gpu_text = NULL;	/* text to show gpu */
+static const char *fan_text = NULL;	/* text to show fan */
 
 /* Return a time stamp */
 
@@ -524,8 +529,9 @@ check_read_interval(const char *setup_name, const char *id, const char *interval
 		return FALSE;
 	}
 	if (len == 0 || !isdigit(buf[0])) {
-		if (debug && log_file != NULL)
+		if (log_file != NULL) {
 			fprintf(log_file, "Setup file '%s' has '%s' without numeric value.\n", setup_name, id);
+		}
 	} else {
 		*interval_ptr = atoi(buf);
 		if (*interval_ptr < min_val) *interval_ptr = min_val;
@@ -533,6 +539,43 @@ check_read_interval(const char *setup_name, const char *id, const char *interval
 		if (debug && log_file != NULL) fprintf(log_file, "Set '%s' to %d %s.\n", id, *interval_ptr, units);
 	}
 	return TRUE;
+}
+
+/* Read a boolean */
+
+static gboolean
+check_read_boolean(const char *setup_name, const char *id, const char *flag_name, int *flag_ptr, const char *buf, int len)
+{
+	if (strcmp(id, flag_name) != 0) {
+		return FALSE;
+	}
+
+	*flag_ptr =
+		((len == 0 ||
+		  (isdigit(buf[0]) && atoi(buf) > 0) ||
+		  (buf[0] == 'y' || buf[0] == 't'))? 1: 0);
+
+	if (*flag_ptr == 0 && buf[0] != '0' && buf[0] != 'n' && buf[0] != 'f') {
+		if (log_file != NULL) {
+			fprintf(log_file, "Setup file '%s' has '%s' without boolean value.\n", setup_name, id);
+		}
+	}
+
+	if (debug && log_file != NULL) {
+		fprintf(log_file, "Set '%s' to %d.\n", flag_name, *flag_ptr);
+	}
+
+	return TRUE;
+}
+
+/* Update settings */
+
+static void
+update_settings()
+{
+	temp_text = (do_unicode? "\xF0\x9F\x8C\xA1": "Temp");
+	gpu_text = (do_unicode? " \xF0\x9F\x8E\xA8": " G");
+	fan_text = (do_unicode? "\xE2\x9D\x83": "Fan");
 }
 
 /* Read the setup file */
@@ -564,6 +607,7 @@ read_setup_file()
 			fprintf(log_file, "Could not open setup file %s.\n", setup_name);
 			fflush(log_file);
 		}
+		update_settings();
 		return;
 	}
 
@@ -631,13 +675,10 @@ read_setup_file()
 						fprintf(log_file, "Set 'sound' to '%s'.\n", sound_name);
 				}
 			}
-		} else if (strcmp(id, "beep") == 0) {
-			do_beep =
-				((len == 0 ||
-				  (isdigit(buf[0]) && atoi(buf) > 0) ||
-				  (buf[0] == 'y' || buf[0] == 't'))? 1: 0);
-			if (debug && log_file != NULL)
-				fprintf(log_file, "Set 'beep' to %d.\n", do_beep);
+		} else if (check_read_boolean(setup_name, id, "beep", &do_beep, buf, len)) {
+			;
+		} else if (check_read_boolean(setup_name, id, "unicode", &do_unicode, buf, len)) {
+			;
 		} else if (check_read_interval(setup_name, id, "interval", &interval, 1, MAX_INTERVAL, "seconds", buf, len)) {
 			if (interval < 1) interval = 1;
 		} else if (check_read_interval(setup_name, id, "tempinterval", &temperature_interval, 0, MAX_INTERVAL, "seconds", buf, len)) {
@@ -678,6 +719,8 @@ read_setup_file()
 		if (gpu_temp_interval < fan_check_interval) gpu_temp_interval = fan_check_interval;
 	}
 
+	update_settings();
+
 	if (log_file != NULL) {
 		fprintf(log_file, "Read setup file '%s' at %s.\n", setup_name, show_time());
 		fprintf(log_file, " interval %d seconds\n", interval);
@@ -688,6 +731,7 @@ read_setup_file()
 		fprintf(log_file, " warn again after %d seconds\n", warning_interval);
 		fprintf(log_file, " play sound '%s'\n", (sound_name? sound_name: "<none>"));
 		fprintf(log_file, " beep '%d'\n", do_beep);
+		fprintf(log_file, " unicode '%d'\n", do_unicode);
 		fprintf(log_file, " debug level %d\n", debug);
 		fflush(log_file);
 	}
@@ -771,11 +815,11 @@ open_window (GtkEventBox *event_box, gboolean force_update)
 				last_gpu_temp = check_gpu_temp();
 				last_gpu_temp_check_time = current_time;
 			}
-			gpu_mark = ((last_gpu_temp > 0)? " G": "");
+			gpu_mark = ((last_gpu_temp > 0)? gpu_text: "");
 			if (fan_speed > 0) {
-				sprintf(temp_buf, "Temp %d%s Fan %d", temperature, gpu_mark, fan_speed);
+				sprintf(temp_buf, "%s %d%s %s %d", temp_text, temperature, gpu_mark, fan_text, fan_speed);
 			} else {
-				sprintf(temp_buf, "Temp %d%s", temperature, gpu_mark);
+				sprintf(temp_buf, "%s %d%s", temp_text, temperature, gpu_mark);
 			}
 			last_label = gtk_label_new (temp_buf);
 			gtk_container_add (GTK_CONTAINER (event_box), last_label);

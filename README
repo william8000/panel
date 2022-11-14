@@ -41,10 +41,12 @@ It uses the files
 
 The configuration file is a text file.
 Lines have the syntax
-* # comment
+* \# comment
  A comment
 * level #
- Set the brightness level to a number from 0 to 100
+ Set the brightness level to a number from 0 to 100.
+* unicode yes
+ Use unicode symbols instead of words.
 * debug #
  Set the debug level. 0 means no debug.
 
@@ -62,7 +64,7 @@ It uses the files
 
 The configuration file is a text file.
 Lines have the syntax
-* # command
+* \# comment
  A comment
 * mail mailname
  mailname is the name of the file to watch.
@@ -96,10 +98,10 @@ It uses the files
 
 The configuration file is a text file.
 Lines have the syntax
-* # command
+* \# comment
  A comment
 * interval #
- Check the temperature every # seconds, where # is between 1 and 5000, defaults to 5.
+ Check the temperature every # seconds, where # is between 1 and 5000, defaults to 3.
 * warn #
  High temperature warning level, where # is degrees C, defaults to 90.
 * sound soundname
@@ -112,6 +114,10 @@ Lines have the syntax
  Beep on high temperature warnings.
 * warninterval #
  Interval in seconds to warn for sustained high temperatures, where # is between 1 and 1000, defaults to 5.
+* faninterval #
+ Interval in seconds to check the fan speed, defaults to 9.
+* unicode yes
+ Use unicode symbols instead of words.
 * debug #
  Set the debug level. 0 means no debug.
 
