@@ -4,8 +4,9 @@
  * 03Aug10 wb added pointer grab
  * 26Jun12 wb migrated from gnome2 to mate for Fedora 17
  * 25Feb14 wb converted to mate 1.6.2 for Fedora 20
- * 26Feb14 wb use dbus
+ * 26Feb14 wb use dbus using https://github.com/mate-desktop/mate-power-manager/tree/master/applets/brightness
  * 09Nov22 wb add unicode option
+ * 22Nov22 wb clean up for mate 1.26 for Fedora 36, reduce button increments from 5 to 1, fix initialization
  */
 
 #include <sys/types.h>
@@ -25,7 +26,7 @@
 
 #include <dbus/dbus-glib.h>
 
-#define VERSION		"09Nov22"
+#define VERSION		"22Nov22"
 
 #define	BASE_NAME	"backlight"
 
@@ -35,8 +36,10 @@ enum backlight_source_enum {
 	BACKLIGHT_SOURCE_UNKNOWN,
 	BACKLIGHT_SOURCE_SYS_FILE,
 	BACKLIGHT_SOURCE_XBACKLIGHT,
-	BACKLIGHT_SOURCE_DBUS
+	BACKLIGHT_SOURCE_DBUS,
+	NUM_BACKLIGHT_SOURCES
 };
+static char *backlight_source_names[] = { "UNKNOWN", "SYS_FILE", "XBACKLIGHT", "DBUS", "ERR" };
 
 #define MATE_PANEL_APPLET_VERTICAL(p)	 (((p) == MATE_PANEL_APPLET_ORIENT_LEFT) || ((p) == MATE_PANEL_APPLET_ORIENT_RIGHT))
 
@@ -115,6 +118,7 @@ write_backlight_status()
 			}
 		} else {
 			fprintf(status_file, "level %d\n", backlight_level_100);
+			fprintf(status_file, "maxrawlevel %d\n", max_backlight_level);
 			fclose(status_file);
 			backlight_level_100_status = backlight_level_100;
 			if (debug && log_file != NULL) {
@@ -278,7 +282,9 @@ get_backlight_level(MatePanelApplet *applet)
 	}
 
 	if (debug && log_file != NULL) {
-		fprintf(log_file, "read backlight level %d of %d from source %d at %s\n", backlight_level, max_backlight_level, backlight_source, show_time());
+		fprintf(log_file,
+		  "read backlight level %d of %d from source %d %s at %s\n",
+		  backlight_level, max_backlight_level, backlight_source, backlight_source_names[ backlight_source ], show_time());
 	}
 
 	if (backlight_level_100 < 0) {
@@ -302,12 +308,12 @@ backlight_applet_set_brightness (MatePanelApplet *applet)
 	gboolean ok = TRUE;
 
 	if (debug && log_file) {
-		fprintf(log_file, "Request to set brightness to %d%%\n", backlight_level_100);
+		fprintf(log_file, "Request to set brightness to %d%% of %d\n", backlight_level_100, max_backlight_level);
 		fflush(log_file);
 	}
 
-	if (backlight_level_100 < 0) backlight_level = 0;
-	if (backlight_level_100 > 100) backlight_level = 100;
+	if (backlight_level_100 < 0) backlight_level_100 = 0;
+	if (backlight_level_100 > 100) backlight_level_100 = 100;
 	if (max_backlight_level == 100) {
 		new_backlight_level = backlight_level_100;
 	} else {
@@ -411,13 +417,23 @@ read_setup_file(const char *name)
 		} else if (strcmp(id, "level") == 0) {
 			if (len == 0 || !isdigit(buf[0])) {
 				if (log_file != NULL) {
-					fprintf(log_file, "Setup file '%s' has 'debug' without numeric value.\n", name);
+					fprintf(log_file, "Setup file '%s' has 'level' without numeric value.\n", name);
 				}
 			} else {
 				backlight_level_100 = atoi(buf);
 				if (backlight_level_100 < 0) backlight_level_100 = 0;
 				if (backlight_level_100 > 100) backlight_level_100 = 100;
 				if (log_file != NULL) fprintf(log_file, "Set initial level to %d%%.\n", backlight_level_100);
+			}
+		} else if (strcmp(id, "maxrawlevel") == 0) {
+			if (len == 0 || !isdigit(buf[0])) {
+				if (log_file != NULL) {
+					fprintf(log_file, "Setup file '%s' has 'maxrawlevel' without numeric value.\n", name);
+				}
+			} else {
+				max_backlight_level = atoi(buf);
+				if (max_backlight_level <= 0) max_backlight_level = MAX_BACKLIGHT_LEVEL;
+				if (log_file != NULL) fprintf(log_file, "Set max raw level to %d.\n", max_backlight_level);
 			}
 		} else if (strcmp(id, "unicode") == 0) {
 			do_unicode = ((len == 0 || (buf[0] >= '1' && buf[0] <= '9') || buf[0] == 'y' || buf[0] == 't')? 1: 0);
@@ -441,6 +457,7 @@ read_setup_file(const char *name)
 	if (log_file != NULL && (debug || strcmp(name, setup_name) == 0)) {
 		fprintf(log_file, "Read setup file '%s' at %s.\n", name, show_time());
 		fprintf(log_file, " backlight level %d\n", backlight_level_100);
+		fprintf(log_file, " max raw level %d\n", max_backlight_level);
 		fprintf(log_file, " unicode %d\n", do_unicode);
 		fprintf(log_file, " debug level %d\n", debug);
 		fflush(log_file);
@@ -528,7 +545,7 @@ backlight_applet_update_popup_level (MatePanelApplet *applet)
 static gboolean
 backlight_applet_plus_cb (GtkWidget *w, MatePanelApplet *applet)
 {
-	backlight_level_100 += 5;
+	backlight_level_100 += 1;
 	if (backlight_level_100 > 100) {
 		backlight_level_100 = 100;
 	}
@@ -543,7 +560,7 @@ backlight_applet_plus_cb (GtkWidget *w, MatePanelApplet *applet)
 static gboolean
 backlight_applet_minus_cb (GtkWidget *w, MatePanelApplet *applet)
 {
-	backlight_level_100 -= 5;
+	backlight_level_100 -= 1;
 	if (backlight_level_100 < 0) {
 		backlight_level_100 = 0;
 	}
@@ -565,6 +582,53 @@ backlight_applet_slide_cb (GtkWidget *w, MatePanelApplet *applet)
 	return TRUE;
 }
 
+#if 0
+/* callback for key presses */
+
+static gboolean
+backlight_applet_key_press_cb (GtkWidget *popup, GdkEventKey *event, MatePanelApplet *applet)
+{
+	switch (event->keyval) {
+	case GDK_KEY_KP_Enter:
+	case GDK_KEY_ISO_Enter:
+	case GDK_KEY_3270_Enter:
+	case GDK_KEY_Return:
+	case GDK_KEY_space:
+	case GDK_KEY_KP_Space:
+	case GDK_KEY_Escape:
+		/* if yet popped, hide */
+		if (backlight_popped) {
+			gtk_widget_hide (backlight_popup);
+			backlight_popped = FALSE;
+			backlight_applet_draw_cb (applet);
+			backlight_applet_update_tooltip (applet);
+			return TRUE;
+		} else {
+			return FALSE;
+		}
+		break;
+	case GDK_KEY_Page_Up:
+		backlight_applet_plus_cb (NULL, applet);
+		return TRUE;
+	case GDK_KEY_Left:
+	case GDK_KEY_Up:
+		backlight_applet_plus_cb (NULL, applet);
+		return TRUE;
+	case GDK_KEY_Page_Down:
+		backlight_applet_minus_cb (NULL, applet);
+		return TRUE;
+	case GDK_KEY_Right:
+	case GDK_KEY_Down:
+		backlight_applet_minus_cb (NULL, applet);
+		return TRUE;
+	default:
+		break;
+	}
+
+	return FALSE;
+}
+#endif
+
 /* Create the popup */
 
 static void
@@ -579,10 +643,10 @@ backlight_applet_create_popup (MatePanelApplet *applet)
 
 	/* slider */
 	if (MATE_PANEL_APPLET_VERTICAL(orientation)) {
-		backlight_slider = gtk_hscale_new_with_range (0, 100, 1);
+		backlight_slider = gtk_scale_new_with_range (GTK_ORIENTATION_HORIZONTAL, 0, 100, 1);
 		gtk_widget_set_size_request (backlight_slider, 100, -1);
 	} else {
-		backlight_slider = gtk_vscale_new_with_range (0, 100, 1);
+		backlight_slider = gtk_scale_new_with_range (GTK_ORIENTATION_VERTICAL, 0, 100, 1);
 		gtk_widget_set_size_request (backlight_slider, -1, 100);
 	}
 
@@ -603,9 +667,9 @@ backlight_applet_create_popup (MatePanelApplet *applet)
 
 	/* box */
 	if (MATE_PANEL_APPLET_VERTICAL(orientation)) {
-		box = gtk_hbox_new (FALSE, 1);
+		box = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 1);
 	} else {
-		box = gtk_vbox_new (FALSE, 1);
+		box = gtk_box_new (GTK_ORIENTATION_VERTICAL, 1);
 	}
 	gtk_box_pack_start (GTK_BOX(box), backlight_btn_plus, FALSE, FALSE, 0);
 	gtk_box_pack_start (GTK_BOX(box), backlight_slider, TRUE, TRUE, 0);
@@ -621,6 +685,12 @@ backlight_applet_create_popup (MatePanelApplet *applet)
 	gtk_window_set_type_hint (GTK_WINDOW(backlight_popup), GDK_WINDOW_TYPE_HINT_UTILITY);
 	gtk_widget_set_parent (backlight_popup, GTK_WIDGET(applet));
 	gtk_container_add (GTK_CONTAINER(backlight_popup), frame);
+
+#if 0
+	/* window events */
+	g_signal_connect (G_OBJECT(backlight_popup), "key-press-event",
+			  G_CALLBACK(backlight_applet_key_press_cb), applet);
+#endif
 }
 
 /* Update the status displayed in the panel */
@@ -634,10 +704,10 @@ open_window (MatePanelApplet *applet)
 
 	if (backlight_popped) {
 
-		gdk_keyboard_ungrab (GDK_CURRENT_TIME);
-		gdk_pointer_ungrab (GDK_CURRENT_TIME);
-		gtk_grab_remove (GTK_WIDGET(applet));
-		gtk_widget_set_state (GTK_WIDGET(applet), GTK_STATE_NORMAL);
+		/* gdk_keyboard_ungrab (GDK_CURRENT_TIME); */
+		/* gdk_pointer_ungrab (GDK_CURRENT_TIME); */
+		/* gtk_grab_remove (GTK_WIDGET(applet)); */
+		/* gtk_widget_set_state (GTK_WIDGET(applet), GTK_STATE_NORMAL); */
 
 		gtk_widget_hide (backlight_popup);
 
