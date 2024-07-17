@@ -7,6 +7,8 @@
  * 26Feb14 wb use dbus using https://github.com/mate-desktop/mate-power-manager/tree/master/applets/brightness
  * 09Nov22 wb add unicode option
  * 22Nov22 wb clean up for mate 1.26 for Fedora 36, reduce button increments from 5 to 1, fix initialization
+ *
+ * The dbus interface needs to be able to sudo /usr/sbin/mate-power-backlight-helper
  */
 
 #include <sys/types.h>
