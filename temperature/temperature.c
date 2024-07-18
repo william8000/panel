@@ -17,6 +17,7 @@
  * 25Oct22 wb use openat()
  * 05Nov22 wb get GPU temperature
  * 09Nov22 wb add unicode option
+ * 17Jul24 wb add nvme ssd
  */
 
 #include <sys/types.h>
@@ -35,7 +36,7 @@
 #include <gtk/gtkbox.h>
 #include <gdk/gdkx.h>
 
-#define VERSION		"09Nov22"
+#define VERSION		"17Jul24"
 
 #define BASE_NAME	"temperature"
 
@@ -57,6 +58,8 @@ static int do_unicode = 1;		/* show unicode instead of text */
 static int temperature_interval = 0;	/* interval to update temperature if it only changed a little */
 static int fan_check_interval = 0;	/* interval to check fan */
 static int gpu_temp_interval = 0;	/* interval to check gpu */
+static int ssd_temp_interval = 0;	/* interval to check ssd */
+static int ssd_hide_temperature = 0;	/* hide low ssd temperatures */
 static int warning_temperature = 0;	/* temperature to show a warning */
 static int warning_interval = 0;	/* interval to repeat a warning */
 static char *setup_name = NULL;		/* name of the config file */
@@ -65,6 +68,7 @@ static time_t setup_check_time = 0;	/* time of last check of config file */
 static gint timer_handle = 0;		/* handle to change the mate timer */
 static const char *temp_text = NULL;	/* text to show temperature */
 static const char *gpu_text = NULL;	/* text to show gpu */
+static const char *ssd_text = NULL;	/* test to show ssd */
 static const char *fan_text = NULL;	/* text to show fan */
 
 /* Return a time stamp */
@@ -108,6 +112,8 @@ enum check_temperature_enum {
 	MAX_BUF = 80,
 	HWMON_IND_POS = 44,
 	TEMP_IND_POS = 50,
+	DEV_NVME_HWMON_IND_POS = 27,
+	DEV_NVME_HWMON_TEMP_IND_POS = DEV_NVME_HWMON_IND_POS + 6,
 	THINKPAD_HWMON_IND_POS = 48,
 	THINKPAD_TEMP_IND_POS = THINKPAD_HWMON_IND_POS + 6
 };
@@ -175,6 +181,40 @@ check_gpu_temp()
 	return result;
 }
 
+/* Find the current ssd temperature */
+
+static char *hwmon_ssd_temp_path = NULL;
+static int hwmon_ssd_temp_dir_fd = -1;
+
+static int
+check_ssd_temp()
+{
+	int result = 0;
+
+	if (hwmon_ssd_temp_path != NULL) {
+		int fd = openat(hwmon_ssd_temp_dir_fd, hwmon_ssd_temp_path, O_RDONLY);
+		if (fd != -1) {
+			char buf[ MAX_BUF ];
+			int len = read(fd, buf, MAX_BUF - 1);
+			if (len > 0) {
+				if (len > MAX_BUF - 1) len = MAX_BUF - 1;
+				buf[ len ] = '\0';
+				result = atoi(buf) / 1000;
+				if (debug && log_file != NULL) {
+					fprintf(log_file, "hwmon ssd temp %d\n", result);
+				}
+			}
+			close(fd);
+		}
+		if (result <= 0) {
+			if (debug && log_file != NULL) {
+				fprintf(log_file, "hwmon ssd temp N/A\n");
+			}
+		}
+	}
+	return result;
+}
+
 /* Find the current cpu temperature */
 
 static int
@@ -187,6 +227,8 @@ check_temperature()
 	int temp;
 	int result;
 	char *path;
+	char *ssd_hwmon_path;
+	int ssd_hwmon_dir_fd;
 	struct stat stat_buf;
 	static enum check_temperature_source_enum source = NO_SOURCE;
 	static char *hwmon_path = NULL;
@@ -388,6 +430,107 @@ check_temperature()
 			}
 		}
 
+		/* scan for the ssd temperature */
+
+		ssd_hwmon_path = NULL;
+		ssd_hwmon_dir_fd = -1;
+
+		strcpy(buf, "/sys/class/nvme/nvme0/hwmon#/temp1_label");
+
+		for (i = 0; i < 10; i++) {
+			buf[ DEV_NVME_HWMON_IND_POS ] = (char) ('0' + i);
+			if (debug && log_file != NULL) {
+				fprintf(log_file, "nvme hwmon scan, checking for '%s'\n", buf);
+			}
+			if (stat(buf, &stat_buf) == 0) {
+				ssd_hwmon_path = malloc(strlen(buf) + 10);
+				if (ssd_hwmon_path == NULL) {
+					if (log_file != NULL) {
+						fprintf(log_file, "could not allocate ssd hwmon path\n");
+					}
+					exit_temperature();
+				}
+				strcpy(ssd_hwmon_path, buf);
+				buf[ DEV_NVME_HWMON_IND_POS + 1 ] = '\0';
+				ssd_hwmon_dir_fd = open(buf, O_DIRECTORY | __O_PATH);
+				if (ssd_hwmon_dir_fd == -1) {
+					if (log_file != NULL) {
+						fprintf(log_file, "path open of ssd hwmon dir %s failed\n", buf);
+					}
+					exit_temperature();
+				}
+				break;
+			}
+		}
+
+		/* scan temp#_label with the Composite item */
+
+		if (ssd_hwmon_path != NULL && ssd_hwmon_dir_fd != -1) {
+			int ssd_ind = 0;
+			int ssd_sensor_ind = 0;
+			for (i = 1; i < 10; i++) {
+				ssd_hwmon_path[ DEV_NVME_HWMON_TEMP_IND_POS ] = (char) ('0' + i);
+				if (debug && log_file != NULL) {
+					fprintf(log_file, "temp scan, checking for '%s'\n", ssd_hwmon_path);
+				}
+				f = fopen(ssd_hwmon_path, "r");
+				if (f == NULL) {
+					continue;
+				}
+				if (fgets(buf, MAX_BUF, f) != NULL) {
+					if (strncmp(buf, "Comp", 4) == 0) {
+						ssd_ind = i;
+						if (debug && log_file != NULL) {
+							fprintf(log_file, "found ssd composite %d with %s\n", i, buf);
+						}
+						/* break; */ /* XXX */
+					} else if (ssd_sensor_ind <= 0 && strncmp(buf, "Sens", 4) == 0) {
+						ssd_sensor_ind = i;
+						if (debug && log_file != NULL) {
+							fprintf(log_file, "found ssd sensor %d with %s\n", i, buf);
+						}
+					}
+				}
+				fclose(f);
+			}
+			if (ssd_ind <= 0) {
+				ssd_ind = ssd_sensor_ind;
+			}
+			if (ssd_ind > 0) {
+				/* found the ssd temperature item */
+				/* change the end of the path from "label" to "input" to read the values */
+				ssd_hwmon_path[ DEV_NVME_HWMON_TEMP_IND_POS ] = (char) ('0' + ssd_ind);
+				strcpy(&ssd_hwmon_path[ DEV_NVME_HWMON_TEMP_IND_POS+2 ], "input");
+				if (debug && log_file != NULL) {
+					fprintf(log_file, "using ssd %s\n", ssd_hwmon_path);
+				}
+				hwmon_ssd_temp_path = ssd_hwmon_path;
+				if (check_ssd_temp() < 0) {
+					hwmon_ssd_temp_path = NULL;
+				}
+				if (ssd_ind > 0) {
+					hwmon_ssd_temp_path = (char *) malloc(20);
+					if (hwmon_ssd_temp_path != NULL) {
+						strcpy(hwmon_ssd_temp_path, "temp#_input");
+						hwmon_ssd_temp_path[ 4 ] = (char) ('0' + ssd_ind);
+						if (debug && log_file != NULL) {
+							fprintf(log_file, "using ssd temp %s\n", hwmon_ssd_temp_path);
+						}
+					}
+				}
+			}
+
+			/* check that we found something */
+
+			if (ssd_ind <= 0) {
+				if (debug && log_file != NULL) {
+					fprintf(log_file, "did not find good hmon ssd temp item\n");
+				}
+			}
+		}
+
+		hwmon_ssd_temp_dir_fd = ssd_hwmon_dir_fd;
+
 		/* fall back to using the sensors utility */
 
 		if (source == NO_SOURCE) {
@@ -397,7 +540,7 @@ check_temperature()
 		/* log the source */
 
 		if (log_file != NULL) {
-			fprintf(log_file, " using %s source\n", temperature_source_names[ source ]);
+			fprintf(log_file, "cpu temp using %s source\n", temperature_source_names[ source ]);
 			fflush(log_file);
 		}
 	}
@@ -569,13 +712,16 @@ check_read_boolean(const char *setup_name, const char *id, const char *flag_name
 }
 
 /* Update settings */
+/*   All settings except temp are responsible for their leading space */
+/*   to simplify formatting with optional settings */
 
 static void
 update_settings()
 {
 	temp_text = (do_unicode? "\xF0\x9F\x8C\xA1": "Temp");
 	gpu_text = (do_unicode? " \xF0\x9F\x8E\xA8": " G");
-	fan_text = (do_unicode? "\xE2\x9D\x83": "Fan");
+	ssd_text = (do_unicode? " \xF0\x9F\x96\xB4": " H");
+	fan_text = (do_unicode? " \xE2\x9D\x83": " Fan");
 }
 
 /* Read the setup file */
@@ -611,7 +757,8 @@ read_setup_file()
 		return;
 	}
 
-	temperature_interval = fan_check_interval = gpu_temp_interval = warning_interval = -1;
+	temperature_interval = fan_check_interval = gpu_temp_interval = ssd_temp_interval = warning_interval = -1;
+	ssd_hide_temperature = -1;
 
 	if (fstat(fileno(setup_file), &stat_buf) == 0) {
 		setup_mtime = stat_buf.st_mtim.tv_sec;
@@ -683,6 +830,12 @@ read_setup_file()
 			if (interval < 1) interval = 1;
 		} else if (check_read_interval(setup_name, id, "tempinterval", &temperature_interval, 0, MAX_INTERVAL, "seconds", buf, len)) {
 			;
+		} else if (check_read_interval(setup_name, id, "gpuinterval", &gpu_temp_interval, 0, MAX_INTERVAL, "seconds", buf, len)) {
+			;
+		} else if (check_read_interval(setup_name, id, "ssdinterval", &ssd_temp_interval, 0, MAX_INTERVAL, "seconds", buf, len)) {
+			;
+		} else if (check_read_interval(setup_name, id, "ssdhidetemp", &ssd_hide_temperature, 0, MAX_WARNING_TEMPERATURE, "degrees", buf, len)) {
+			;
 		} else if (check_read_interval(setup_name, id, "faninterval", &fan_check_interval, 0, MAX_INTERVAL, "seconds", buf, len)) {
 			;
 		} else if (check_read_interval(setup_name, id, "warn", &warning_temperature, 0, MAX_WARNING_TEMPERATURE, "degrees", buf, len)) {
@@ -718,6 +871,13 @@ read_setup_file()
 		gpu_temp_interval = temperature_interval;
 		if (gpu_temp_interval < fan_check_interval) gpu_temp_interval = fan_check_interval;
 	}
+	if (ssd_temp_interval < 0) {
+		ssd_temp_interval = temperature_interval;
+		if (ssd_temp_interval < fan_check_interval) ssd_temp_interval = fan_check_interval;
+	}
+	if (ssd_hide_temperature < 0) {
+		ssd_hide_temperature = 40;
+	}
 
 	update_settings();
 
@@ -727,7 +887,9 @@ read_setup_file()
 		fprintf(log_file, " small change temperature interval %d seconds\n", temperature_interval);
 		fprintf(log_file, " fan check interval %d seconds\n", fan_check_interval);
 		fprintf(log_file, " gpu check interval %d seconds\n", gpu_temp_interval);
-		fprintf(log_file, " warn at %d degrees\n", warning_temperature);
+		fprintf(log_file, " ssd check interval %d seconds\n", ssd_temp_interval);
+		fprintf(log_file, " ssd hide temperature at or below %d degrees\n", ssd_hide_temperature);
+		fprintf(log_file, " warn at cpu temp %d degrees\n", warning_temperature);
 		fprintf(log_file, " warn again after %d seconds\n", warning_interval);
 		fprintf(log_file, " play sound '%s'\n", (sound_name? sound_name: "<none>"));
 		fprintf(log_file, " beep '%d'\n", do_beep);
@@ -745,13 +907,16 @@ open_window (GtkEventBox *event_box, gboolean force_update)
 	static GtkWidget *last_label = NULL;
 	static int last_temperature = 0;
 	static int last_gpu_temp = 0;
+	static int last_ssd_temp = 0;
 	static int last_fan_speed = -1;
 	static time_t last_warning_time = 0;
 	static time_t last_fan_check_time = 0;
 	static time_t last_gpu_temp_check_time = 0;
+	static time_t last_ssd_temp_check_time = 0;
 	static time_t last_repaint_time = 0;
 	static time_t current_time;
 	int temperature;
+	int ssd_temp;
 	int fan_speed;
 	enum open_window_enum { TEMP_BUF_LEN = 80 };
 	char temp_buf[ TEMP_BUF_LEN ];
@@ -762,14 +927,26 @@ open_window (GtkEventBox *event_box, gboolean force_update)
 
 	fan_speed = last_fan_speed;
 
+	ssd_temp = last_ssd_temp;
+
 	if (force_update || temperature != last_temperature || current_time > last_fan_check_time + ((fan_speed == 0 && temperature <= 46)? 3: 1) * fan_check_interval) {
 		fan_speed = check_fan_speed();
 		last_fan_check_time = current_time;
 	}
 
+	if (force_update || temperature != last_temperature || fan_speed != last_fan_speed ||
+            current_time > last_ssd_temp_check_time + ((fan_speed == 0 && temperature <= 46)? 3: 1) * ssd_temp_interval) {
+		ssd_temp = check_ssd_temp();
+		if (ssd_temp <= ssd_hide_temperature) {
+			/* don't show normal idle temperatures */
+			ssd_temp = 0;
+		}
+		last_ssd_temp_check_time = current_time;
+	}
+
 	if (debug && log_file != NULL) {
-		fprintf(log_file, "old temp %d new temp %d old gpu %d old fan %d new fan %d at %s\n",
-			last_temperature, temperature, last_gpu_temp, last_fan_speed, fan_speed, show_time());
+		fprintf(log_file, "old temp %d new temp %d old gpu %d old ssd %d old fan %d new fan %d at %s\n",
+			last_temperature, temperature, last_gpu_temp, last_ssd_temp, last_fan_speed, fan_speed, show_time());
 		fflush(log_file);
 	}
 
@@ -792,13 +969,15 @@ open_window (GtkEventBox *event_box, gboolean force_update)
 		}
 	}
 
-	if ((temperature != last_temperature || fan_speed != last_fan_speed) &&
+	if ((temperature != last_temperature || fan_speed != last_fan_speed || ssd_temp != last_ssd_temp) &&
 	    (force_update ||
 	     abs(temperature - last_temperature) > 2 ||
 	     temperature >= warning_temperature ||
 	     last_temperature >= warning_temperature ||
+	     ssd_temp != last_ssd_temp ||
 	     fan_speed != last_fan_speed ||
 	     current_time >= last_repaint_time + temperature_interval)) {
+
 		if (last_label != NULL) {
 			gtk_container_remove (GTK_CONTAINER (event_box), last_label);
 			if (debug && log_file != NULL) {
@@ -807,19 +986,25 @@ open_window (GtkEventBox *event_box, gboolean force_update)
 		}
 
 		last_temperature = temperature;
+		last_ssd_temp = ssd_temp;
 		last_fan_speed = fan_speed;
 		last_repaint_time = current_time;
 		if (temperature > 0) {
 			const char *gpu_mark;
+			char ssd_buf[ TEMP_BUF_LEN ];
 			if (current_time > last_gpu_temp_check_time + gpu_temp_interval) {
 				last_gpu_temp = check_gpu_temp();
 				last_gpu_temp_check_time = current_time;
 			}
 			gpu_mark = ((last_gpu_temp > 0)? gpu_text: "");
+			ssd_buf[0] = '\0';
+			if (last_ssd_temp > 0) {
+				sprintf(ssd_buf, "%s %d", ssd_text, last_ssd_temp);
+			}
 			if (fan_speed > 0) {
-				sprintf(temp_buf, "%s %d%s %s %d", temp_text, temperature, gpu_mark, fan_text, fan_speed);
+				sprintf(temp_buf, "%s %d%s%s%s %d", temp_text, temperature, gpu_mark, ssd_buf, fan_text, fan_speed);
 			} else {
-				sprintf(temp_buf, "%s %d%s", temp_text, temperature, gpu_mark);
+				sprintf(temp_buf, "%s %d%s%s", temp_text, temperature, gpu_mark, ssd_buf);
 			}
 			last_label = gtk_label_new (temp_buf);
 			gtk_container_add (GTK_CONTAINER (event_box), last_label);
