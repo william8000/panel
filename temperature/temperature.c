@@ -540,7 +540,7 @@ check_temperature()
 		/* log the source */
 
 		if (log_file != NULL) {
-			fprintf(log_file, "cpu temp using %s source\n", temperature_source_names[ source ]);
+			fprintf(log_file, " cpu temp using %s source\n", temperature_source_names[ source ]);
 			fflush(log_file);
 		}
 	}
