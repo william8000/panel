@@ -23,7 +23,8 @@ The git archive has tags including gnome-2.32.0-fc14, mate-1.4.1-fc17,
 mate-1.6.2-fc20, and mate-1.24.1-fc32 versions that you can compare
 to see how to migrate applets. gnome-2 to mate-1.4 changes identifier names.
 mate-1.4 to mate-1.6 changes from bonobo to dbus.
-The mate-1.24.1-fc32 version works on mate-1.26.0-fc36 and mate-1.26.0-fc37.
+The mate-1.24.1-fc32 version works on mate-1.26.0-fc36, mate-1.26.0-fc37,
+and mate-1.28.2-fc41.
 
 These applets are licensed GPL2.
 
