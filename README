@@ -17,7 +17,7 @@ You will probably need mate-panel-devel, gtk2-devel, and dbus-glib-devel.
 After installing the applets, you should be able to see them in the list
 if you right-click on the panel and select "+ Add to Panel..."
 
-The applets current require a vertical panel.
+The applets currently require a vertical panel.
 
 Use "make replace" to replace the panel applets while doing development.
 
