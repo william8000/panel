@@ -3,7 +3,7 @@
  * 26Jan08 wb initial version
  * 27Jan08 wb added setup file
  * 28Jan08 wb added sound and beep
- * 12Jun09 wb if MAIL is emtpy, check LOGNAME
+ * 12Jun09 wb if MAIL is empty, check LOGNAME
  * 26Jun12 wb migrated to mate for Fedora 17
  * 26Feb14 wb converted to mate 1.6.2 for Fedora 20
  * 27Aug20 wb initial version, copied from mailcheck.c, read from sensors utility
@@ -18,6 +18,7 @@
  * 05Nov22 wb get GPU temperature
  * 09Nov22 wb add unicode option
  * 17Jul24 wb add nvme ssd
+ * 03Jun26 wb add malloc check
  */
 
 #include <sys/types.h>
@@ -36,7 +37,7 @@
 #include <gtk/gtkbox.h>
 #include <gdk/gdkx.h>
 
-#define VERSION		"17Jul24"
+#define VERSION		"03Jun26"
 
 #define BASE_NAME	"temperature"
 
@@ -361,7 +362,7 @@ check_temperature()
 					source = SYS_DEV_SOURCE;
 					hwmon_path = malloc(strlen(buf) + 10);
 					hwmon_path2 = malloc(strlen(buf) + 10);
-					if (hwmon_path == NULL) {
+					if (hwmon_path == NULL || hwmon_path2 == NULL) {
 						if (log_file != NULL) {
 							fprintf(log_file, "could not allocate hwmon path\n");
 						}
@@ -914,7 +915,7 @@ open_window (GtkEventBox *event_box, gboolean force_update)
 	static time_t last_gpu_temp_check_time = 0;
 	static time_t last_ssd_temp_check_time = 0;
 	static time_t last_repaint_time = 0;
-	static time_t current_time;
+	time_t current_time;
 	int temperature;
 	int ssd_temp;
 	int fan_speed;

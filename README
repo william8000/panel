@@ -17,7 +17,9 @@ You will probably need mate-panel-devel, gtk2-devel, and dbus-glib-devel.
 After installing the applets, you should be able to see them in the list
 if you right-click on the panel and select "+ Add to Panel..."
 
-The applets current require a horizontal panel.
+The applets current require a vertical panel.
+
+Use "make replace" to replace the panel applets while doing development.
 
 The git archive has tags including gnome-2.32.0-fc14, mate-1.4.1-fc17,
 mate-1.6.2-fc20, and mate-1.24.1-fc32 versions that you can compare

@@ -4,7 +4,7 @@ BUILDDIRS = $(TARGETS:%=build-%)
 INSTALLDIRS = $(TARGETS:%=install-%)
 CLEANDIRS = $(TARGETS:%=clean-%)
 
-.PHONY: all build clean distclean reallyclean $(TARGETS) $(BUILDDIRS) $(INSTALLDIRS) $(CLEANDIRS)
+.PHONY: all build clean distclean reallyclean replace $(TARGETS) $(BUILDDIRS) $(INSTALLDIRS) $(CLEANDIRS)
 
 all: $(BUILDDIRS)
 
@@ -18,6 +18,9 @@ install: all $(INSTALLDIRS)
 
 $(INSTALLDIRS):
 	$(MAKE) -C $(@:install-%=%) install
+
+replace:
+	mate-panel --replace > /dev/null 2>&1 &
 
 clean: $(CLEANDIRS)
 

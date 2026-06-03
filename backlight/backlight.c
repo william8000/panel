@@ -7,6 +7,7 @@
  * 26Feb14 wb use dbus using https://github.com/mate-desktop/mate-power-manager/tree/master/applets/brightness
  * 09Nov22 wb add unicode option
  * 22Nov22 wb clean up for mate 1.26 for Fedora 36, reduce button increments from 5 to 1, fix initialization
+ * 03Jun26 wb fix fprintf check
  *
  * The dbus interface needs to be able to sudo /usr/sbin/mate-power-backlight-helper
  */
@@ -28,7 +29,7 @@
 
 #include <dbus/dbus-glib.h>
 
-#define VERSION		"22Nov22"
+#define VERSION		"06Jun26"
 
 #define	BASE_NAME	"backlight"
 
@@ -48,7 +49,7 @@ static char *backlight_source_names[] = { "UNKNOWN", "SYS_FILE", "XBACKLIGHT", "
 static int debug = 1;			/* enable debug messages to the log file */
 static char *home_dir = NULL;		/* user's home directory */
 static char *setup_name = NULL;		/* name of the config file */
-static char *status_name = NULL;	/* name of thes status file */
+static char *status_name = NULL;	/* name of the status file */
 static FILE *log_file = NULL;		/* file for log messages */
 static int backlight_level = -1;	/* current backlight level */
 static int max_backlight_level = MAX_BACKLIGHT_LEVEL; /* maximum value of raw backlight_level */
@@ -342,7 +343,7 @@ backlight_applet_set_brightness (MatePanelApplet *applet)
 				fprintf(log_file, "Could not open '%s' for writing.\n", BACKLIGHT_FILE);
 			}
 		} else {
-			ok = (fprintf(backlight_file, "%d", new_backlight_level));
+			ok = (fprintf(backlight_file, "%d", new_backlight_level) > 0);
 
 			if (!ok && log_file) {
 				fprintf(log_file, "Error writing to '%s'.\n", BACKLIGHT_FILE);

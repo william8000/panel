@@ -5,7 +5,7 @@
  * 26Jan08 wb initial version
  * 27Jan08 wb added setup file
  * 28Jan08 wb added sound and beep
- * 12Jun09 wb if MAIL is emtpy, check LOGNAME
+ * 12Jun09 wb if MAIL is empty, check LOGNAME
  * 26Jun12 wb migrated to mate for Fedora 17
  * 26Feb14 wb converted to mate 1.6.2 for Fedora 20
  * 04Jan22 wb play with -q
